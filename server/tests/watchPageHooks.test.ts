@@ -6,11 +6,9 @@ import { after, before, describe, it } from 'node:test';
 // Enable React act environment before importing react / react-dom
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-type EventCb = (...args: unknown[]) => unknown;
-
 function installMinimalDom() {
-  const listeners = new Map<string, Set<EventCb>>();
-  const docListeners = new Map<string, Set<EventCb>>();
+  const listeners = new Map<string, Set<Function>>();
+  const docListeners = new Map<string, Set<Function>>();
   const storageMap = new Map<string, string>();
 
   const makeStyle = () => {
@@ -162,7 +160,7 @@ function installMinimalDom() {
     namespaceURI = 'http://www.w3.org/1999/xhtml';
     attributes = new Map<string, string>();
     style = makeStyle();
-    eventListeners = new Map<string, Set<EventCb>>();
+    eventListeners = new Map<string, Set<Function>>();
     value = '';
     checked = false;
     disabled = false;
@@ -215,16 +213,16 @@ function installMinimalDom() {
       return this.attributes.has(name);
     }
 
-    addEventListener(type: string, fn: EventCb) {
+    addEventListener(type: string, fn: Function) {
       if (!this.eventListeners.has(type)) this.eventListeners.set(type, new Set());
       this.eventListeners.get(type)!.add(fn);
     }
 
-    removeEventListener(type: string, fn: EventCb) {
+    removeEventListener(type: string, fn: Function) {
       this.eventListeners.get(type)?.delete(fn);
     }
 
-    dispatchEvent(event: Record<string, unknown> & { type: string; bubbles?: boolean; stopPropagation?: () => void }) {
+    dispatchEvent(event: any) {
       if (!event.target) event.target = this;
       let stopped = false;
       const origStop = event.stopPropagation;
@@ -233,11 +231,7 @@ function installMinimalDom() {
         if (typeof origStop === 'function') origStop.call(event);
       };
 
-      event.currentTarget = this;
-      for (const fn of [...(this.eventListeners.get(event.type) || [])]) {
-        fn(event);
-      }
-      let cur: FakeNode | null = stopped || !event.bubbles ? null : this.parentNode;
+      let cur: FakeNode | null = this;
       while (cur) {
         if (cur instanceof FakeElement) {
           event.currentTarget = cur;
@@ -374,11 +368,11 @@ function installMinimalDom() {
     getElementById: (id: string) => htmlEl.querySelector(`#${id}`),
     querySelector: (sel: string) => htmlEl.querySelector(sel),
     querySelectorAll: (sel: string) => htmlEl.querySelectorAll(sel),
-    addEventListener: (type: string, fn: EventCb) => {
+    addEventListener: (type: string, fn: Function) => {
       if (!docListeners.has(type)) docListeners.set(type, new Set());
       docListeners.get(type)!.add(fn);
     },
-    removeEventListener: (type: string, fn: EventCb) => {
+    removeEventListener: (type: string, fn: Function) => {
       docListeners.get(type)?.delete(fn);
     },
     createEvent: () => ({
@@ -414,18 +408,18 @@ function installMinimalDom() {
       removeEventListener: () => {},
       dispatchEvent: () => false,
     }),
-    addEventListener: (type: string, fn: EventCb) => {
+    addEventListener: (type: string, fn: Function) => {
       if (!listeners.has(type)) listeners.set(type, new Set());
       listeners.get(type)!.add(fn);
     },
-    removeEventListener: (type: string, fn: EventCb) => {
+    removeEventListener: (type: string, fn: Function) => {
       listeners.get(type)?.delete(fn);
     },
-    dispatchEvent: (ev: { type: string }) => {
+    dispatchEvent: (ev: any) => {
       for (const fn of [...(listeners.get(ev.type) || [])]) fn(ev);
       return true;
     },
-    requestAnimationFrame: (cb: EventCb) => setTimeout(() => cb(Date.now()), 0),
+    requestAnimationFrame: (cb: Function) => setTimeout(() => cb(Date.now()), 0),
     cancelAnimationFrame: (id: any) => clearTimeout(id),
     Event: class FakeEvent {
       type: string;

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Compass, Search, SlidersHorizontal, X } from 'lucide-react';
 import {
@@ -32,34 +32,31 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
   const currentSeason = getCurrentAnimeSeason();
   const confirmedTracks = usePlaybackCapabilities();
 
-  const defaultSort =
-    mode === 'popular'
-      ? 'POPULARITY_DESC'
-      : mode === 'movies'
-        ? 'START_DATE_DESC'
-        : mode === 'seasonal'
-          ? 'POPULARITY_DESC'
-          : 'TRENDING_DESC';
-
-  const defaultYear = mode === 'seasonal' ? String(currentSeason.year) : 'ALL';
-  const defaultSeason = mode === 'seasonal' ? currentSeason.season : 'ALL';
-  const defaultFormat = mode === 'movies' ? 'MOVIE' : 'ALL';
-
   const [search, setSearch] = useState(searchParams.get('search') || '');
   const [searchFocused, setSearchFocused] = useState(false);
   const [suggestions, setSuggestions] = useState<AnimeSummary[]>([]);
 
   const [genre, setGenre] = useState(searchParams.get('genre') || 'ALL');
   const [tag, setTag] = useState(searchParams.get('tag') || '');
-  const [year, setYear] = useState(searchParams.get('year') || defaultYear);
-  const [season, setSeason] = useState(searchParams.get('season') || defaultSeason);
-  const [format, setFormat] = useState(searchParams.get('format') || defaultFormat);
-  const [status, setStatus] = useState(searchParams.get('status') || 'ALL');
-  const rawAudioParam = searchParams.get('audio');
-  const [audioFilter, setAudioFilter] = useState<'ALL' | 'sub' | 'dub'>(
-    rawAudioParam === 'sub' || rawAudioParam === 'dub' ? rawAudioParam : 'ALL'
+  const [year, setYear] = useState(
+    searchParams.get('year') || (mode === 'seasonal' ? String(currentSeason.year) : 'ALL')
   );
-  const [sort, setSort] = useState(searchParams.get('sort') || defaultSort);
+  const [season, setSeason] = useState(
+    searchParams.get('season') || (mode === 'seasonal' ? currentSeason.season : 'ALL')
+  );
+  const [format, setFormat] = useState(
+    searchParams.get('format') || (mode === 'movies' ? 'MOVIE' : 'ALL')
+  );
+  const [status, setStatus] = useState(searchParams.get('status') || 'ALL');
+  const [audioFilter, setAudioFilter] = useState<'ALL' | 'sub' | 'dub'>('ALL');
+  const [sort, setSort] = useState(
+    searchParams.get('sort') ||
+      (mode === 'popular'
+        ? 'POPULARITY_DESC'
+        : mode === 'movies'
+        ? 'START_DATE_DESC'
+        : 'TRENDING_DESC')
+  );
   const [page, setPage] = useState(Number(searchParams.get('page') || 1));
   const [accumulatedMedia, setAccumulatedMedia] = useState<AnimeSummary[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -74,79 +71,63 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
     mode === 'seasonal'
       ? 'Seasonal Anime'
       : mode === 'movies'
-        ? 'Anime Movies'
-        : mode === 'popular'
-          ? 'Popular Anime'
-          : mode === 'genres'
-            ? 'Browse by Genre'
-            : 'Browse Anime Catalog';
+      ? 'Anime Movies'
+      : mode === 'popular'
+      ? 'Popular Anime'
+      : mode === 'genres'
+      ? 'Browse by Genre'
+      : 'Browse Anime Catalog';
 
   useDocumentMeta({
     title: pageTitle,
     description: `Browse and filter ${pageTitle.toLowerCase()} by genre, year, season, format, audio track, and ranking.`,
-    canonicalPath:
-      mode === 'seasonal'
-        ? '/seasonal'
-        : mode === 'movies'
-          ? '/movies'
-          : mode === 'popular'
-            ? '/popular'
-            : mode === 'genres'
-              ? '/genres'
-              : '/explore',
   });
 
-  const syncParams = useCallback(
-    (patch: Record<string, string | number | null>) => {
-      const next = new URLSearchParams(searchParams);
-      for (const [k, v] of Object.entries(patch)) {
-        if (v === null || v === '' || v === 'ALL') {
-          next.delete(k);
-        } else {
-          next.set(k, String(v));
-        }
-      }
-      if (next.get('page') === '1') next.delete('page');
-      if (next.toString() !== searchParams.toString()) {
-        setSearchParams(next, { replace: true });
-      }
-    },
-    [searchParams, setSearchParams]
-  );
-
-  // Sync URL query params back into local state when route or browser history changes
   useEffect(() => {
     const urlSearch = searchParams.get('search') || '';
     const urlGenre = searchParams.get('genre') || 'ALL';
     const urlTag = searchParams.get('tag') || '';
-    const urlSort = searchParams.get('sort') || defaultSort;
+    const urlSort = searchParams.get('sort');
     const urlStatus = searchParams.get('status') || 'ALL';
-    const urlYear = searchParams.get('year') || defaultYear;
-    const urlFormat = mode === 'movies' ? 'MOVIE' : searchParams.get('format') || defaultFormat;
-    const urlSeason = searchParams.get('season') || defaultSeason;
-    const urlAudio = searchParams.get('audio');
+    const urlYear = searchParams.get('year');
+    const urlFormat = searchParams.get('format');
+    const urlSeason = searchParams.get('season');
     const urlPage = Number(searchParams.get('page') || 1);
 
-    setGenre(urlGenre);
-    setSort(urlSort);
-    setStatus(urlStatus);
-    setYear(urlYear);
-    setSeason(urlSeason);
-    setFormat(urlFormat);
-    setAudioFilter(urlAudio === 'sub' || urlAudio === 'dub' ? urlAudio : 'ALL');
+    if (mode === 'seasonal') {
+      setYear(urlYear || String(currentSeason.year));
+      setSeason(urlSeason || currentSeason.season);
+      setFormat(urlFormat || 'ALL');
+      setGenre(urlGenre);
+      setStatus(urlStatus);
+      setSort(urlSort || 'POPULARITY_DESC');
+    } else if (mode === 'movies') {
+      setFormat('MOVIE');
+      setSeason(urlSeason || 'ALL');
+      setYear(urlYear || 'ALL');
+      setGenre(urlGenre);
+      setStatus(urlStatus);
+      setSort(urlSort || 'START_DATE_DESC');
+    } else if (mode === 'popular') {
+      setFormat(urlFormat || 'ALL');
+      setSeason(urlSeason || 'ALL');
+      setYear(urlYear || 'ALL');
+      setGenre(urlGenre);
+      setStatus(urlStatus);
+      setSort(urlSort || 'POPULARITY_DESC');
+    } else {
+      setGenre(urlGenre);
+      setSort(urlSort || 'TRENDING_DESC');
+      setStatus(urlStatus);
+      setYear(urlYear || 'ALL');
+      setSeason(urlSeason || 'ALL');
+      setFormat(urlFormat || 'ALL');
+    }
     setTag(urlTag);
     setSearch(urlSearch);
     setAccumulatedMedia([]);
     setPage(Number.isFinite(urlPage) && urlPage >= 1 ? Math.floor(urlPage) : 1);
-  }, [mode, defaultSort, defaultYear, defaultSeason, defaultFormat, searchParams]);
-
-  // Keep debounced search term reflected in URL
-  useEffect(() => {
-    const currentUrlSearch = searchParams.get('search') || '';
-    if (debouncedSearch.trim() !== currentUrlSearch) {
-      syncParams({ search: debouncedSearch.trim() || null, page: 1 });
-    }
-  }, [debouncedSearch, searchParams, syncParams]);
+  }, [mode, currentSeason.season, currentSeason.year, searchParams]);
 
   // Live search suggestions dropdown
   useEffect(() => {
@@ -164,7 +145,9 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
 
   useEffect(() => {
     const controller = new AbortController();
-    if (!(page > 1 && loadingMore)) {
+    if (page > 1 && loadingMore) {
+      // Load More appends into accumulatedMedia cleanly
+    } else {
       setLoading(true);
     }
     setError(null);
@@ -209,12 +192,13 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
       });
 
     return () => controller.abort();
-  }, [debouncedSearch, genre, tag, year, season, format, status, sort, page, retryNonce, loadingMore]);
+  }, [debouncedSearch, genre, tag, year, season, format, status, sort, page, retryNonce]);
 
   const visibleMedia = useMemo(() => {
     const sourceList = accumulatedMedia.length > 0 ? accumulatedMedia : data?.media || [];
     if (sourceList.length === 0) return [];
     if (audioFilter === 'ALL') return sourceList;
+    // Only released titles where the active playback registry confirms the requested track
     if (!confirmedTracks.includes(audioFilter)) return [];
     return sourceList.filter((item) => item.status !== 'NOT_YET_RELEASED');
   }, [accumulatedMedia, data?.media, audioFilter, confirmedTracks]);
@@ -223,105 +207,22 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
     setSearch('');
     setGenre('ALL');
     setTag('');
-    setYear(defaultYear);
-    setSeason(defaultSeason);
-    setFormat(defaultFormat);
+    setYear(mode === 'seasonal' ? String(currentSeason.year) : 'ALL');
+    setSeason(mode === 'seasonal' ? currentSeason.season : 'ALL');
+    setFormat(mode === 'movies' ? 'MOVIE' : 'ALL');
     setStatus('ALL');
     setAudioFilter('ALL');
-    setSort(defaultSort);
+    setSort(
+      mode === 'popular'
+        ? 'POPULARITY_DESC'
+        : mode === 'movies'
+        ? 'START_DATE_DESC'
+        : 'TRENDING_DESC'
+    );
     setAccumulatedMedia([]);
     setPage(1);
-    setSearchParams({}, { replace: true });
+    setSearchParams({});
   };
-
-  const activeChips: Array<{ key: string; label: string; onClear: () => void }> = [];
-  if (search.trim()) {
-    activeChips.push({
-      key: 'search',
-      label: `Search: ${search.trim()}`,
-      onClear: () => {
-        setSearch('');
-        setPage(1);
-        syncParams({ search: null, page: 1 });
-      },
-    });
-  }
-  if (genre !== 'ALL') {
-    activeChips.push({
-      key: 'genre',
-      label: `Genre: ${genre}`,
-      onClear: () => {
-        setGenre('ALL');
-        setPage(1);
-        syncParams({ genre: null, page: 1 });
-      },
-    });
-  }
-  if (tag.trim()) {
-    activeChips.push({
-      key: 'tag',
-      label: `Tag: ${tag}`,
-      onClear: () => {
-        setTag('');
-        setPage(1);
-        syncParams({ tag: null, page: 1 });
-      },
-    });
-  }
-  if (season !== 'ALL' && season !== defaultSeason) {
-    activeChips.push({
-      key: 'season',
-      label: `Season: ${season}`,
-      onClear: () => {
-        setSeason(defaultSeason);
-        setPage(1);
-        syncParams({ season: null, page: 1 });
-      },
-    });
-  }
-  if (year !== 'ALL' && year !== defaultYear) {
-    activeChips.push({
-      key: 'year',
-      label: `Year: ${year}`,
-      onClear: () => {
-        setYear(defaultYear);
-        setPage(1);
-        syncParams({ year: null, page: 1 });
-      },
-    });
-  }
-  if (format !== 'ALL' && mode !== 'movies') {
-    activeChips.push({
-      key: 'format',
-      label: `Format: ${format}`,
-      onClear: () => {
-        setFormat('ALL');
-        setPage(1);
-        syncParams({ format: null, page: 1 });
-      },
-    });
-  }
-  if (status !== 'ALL') {
-    activeChips.push({
-      key: 'status',
-      label: `Status: ${status.replace(/_/g, ' ')}`,
-      onClear: () => {
-        setStatus('ALL');
-        setPage(1);
-        syncParams({ status: null, page: 1 });
-      },
-    });
-  }
-  if (audioFilter !== 'ALL') {
-    activeChips.push({
-      key: 'audio',
-      label: `Audio: ${audioFilter.toUpperCase()}`,
-      onClear: () => {
-        setAudioFilter('ALL');
-        syncParams({ audio: null });
-      },
-    });
-  }
 
   return (
     <div className="space-y-6 animate-av-enter">
@@ -354,7 +255,7 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
         </p>
       )}
 
-      {/* Quick Genre Grid */}
+      {/* Quick Genre Grid (prominent on /genres and helpful everywhere) */}
       {mode === 'genres' && (
         <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#11111B] p-4 space-y-3">
           <div className="flex items-center justify-between">
@@ -371,7 +272,6 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
               onClick={() => {
                 setGenre('ALL');
                 setPage(1);
-                syncParams({ genre: null, page: 1 });
               }}
               className={`av-btn-press rounded-lg px-3 py-1.5 text-xs font-medium whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF] ${
                 genre === 'ALL'
@@ -388,7 +288,6 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
                 onClick={() => {
                   setGenre(g);
                   setPage(1);
-                  syncParams({ genre: g, page: 1 });
                 }}
                 className={`av-btn-press rounded-lg px-3 py-1.5 text-xs font-medium whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF] ${
                   genre === g
@@ -403,8 +302,8 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
         </div>
       )}
 
-      {/* Sticky Multi-axis Filter Bar */}
-      <div className="lg:sticky lg:top-[68px] z-20 rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white/95 dark:bg-[#171722]/95 backdrop-blur-md p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3 shadow-sm">
+      {/* Multi-axis Filter Bar */}
+      <div className="rounded-2xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#171722] p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
         {/* Live Search with Suggestions */}
         <div className="relative lg:col-span-2">
           <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 dark:text-[#A5A1B5]" />
@@ -457,10 +356,8 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
         <select
           value={genre}
           onChange={(e) => {
-            const val = e.target.value;
-            setGenre(val);
+            setGenre(e.target.value);
             setPage(1);
-            syncParams({ genre: val === 'ALL' ? null : val, page: 1 });
           }}
           aria-label="Genre"
           className="rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#11111B] px-3 py-2 text-sm text-zinc-900 dark:text-[#F5F3FF] focus:border-[#9B87FF] focus:outline-none"
@@ -477,10 +374,8 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
           <select
             value={season}
             onChange={(e) => {
-              const val = e.target.value;
-              setSeason(val);
+              setSeason(e.target.value);
               setPage(1);
-              syncParams({ season: val === 'ALL' ? null : val, page: 1 });
             }}
             aria-label="Season"
             className="rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#11111B] px-2.5 py-2 text-sm text-zinc-900 dark:text-[#F5F3FF] focus:border-[#9B87FF] focus:outline-none"
@@ -496,10 +391,8 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
           <select
             value={year}
             onChange={(e) => {
-              const val = e.target.value;
-              setYear(val);
+              setYear(e.target.value);
               setPage(1);
-              syncParams({ year: val === 'ALL' ? null : val, page: 1 });
             }}
             aria-label="Year"
             className="rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#11111B] px-2.5 py-2 text-sm text-zinc-900 dark:text-[#F5F3FF] focus:border-[#9B87FF] focus:outline-none"
@@ -517,10 +410,8 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
           <select
             value={format}
             onChange={(e) => {
-              const val = e.target.value;
-              setFormat(val);
+              setFormat(e.target.value);
               setPage(1);
-              syncParams({ format: val === 'ALL' ? null : val, page: 1 });
             }}
             aria-label="Format"
             className="rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#11111B] px-2.5 py-2 text-sm text-zinc-900 dark:text-[#F5F3FF] focus:border-[#9B87FF] focus:outline-none"
@@ -536,10 +427,8 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
           <select
             value={status}
             onChange={(e) => {
-              const val = e.target.value;
-              setStatus(val);
+              setStatus(e.target.value);
               setPage(1);
-              syncParams({ status: val === 'ALL' ? null : val, page: 1 });
             }}
             aria-label="Airing Status"
             className="rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#11111B] px-2.5 py-2 text-sm text-zinc-900 dark:text-[#F5F3FF] focus:border-[#9B87FF] focus:outline-none"
@@ -555,11 +444,7 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
 
         <select
           value={audioFilter}
-          onChange={(e) => {
-            const val = e.target.value as 'ALL' | 'sub' | 'dub';
-            setAudioFilter(val);
-            syncParams({ audio: val === 'ALL' ? null : val });
-          }}
+          onChange={(e) => setAudioFilter(e.target.value as 'ALL' | 'sub' | 'dub')}
           aria-label="Audio track availability"
           className="rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#11111B] px-3 py-2 text-sm text-zinc-900 dark:text-[#F5F3FF] focus:border-[#9B87FF] focus:outline-none"
         >
@@ -577,10 +462,8 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
           <select
             value={sort}
             onChange={(e) => {
-              const val = e.target.value;
-              setSort(val);
+              setSort(e.target.value);
               setPage(1);
-              syncParams({ sort: val === defaultSort ? null : val, page: 1 });
             }}
             aria-label="Sort by"
             className="w-full rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#11111B] px-3 py-2 text-sm text-zinc-900 dark:text-[#F5F3FF] focus:border-[#9B87FF] focus:outline-none"
@@ -595,20 +478,25 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
         </div>
       </div>
 
-      {/* Removable Active Filter Chips */}
-      {activeChips.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2" aria-label="Active filters">
-          {activeChips.map((chip) => (
-            <button
-              key={chip.key}
-              type="button"
-              onClick={chip.onClear}
-              className="av-btn-press inline-flex items-center gap-1.5 rounded-lg border border-[#9B87FF]/40 bg-[#7C5CFF]/10 px-2.5 py-1 text-xs font-medium text-[#7C5CFF] dark:text-[#9B87FF] hover:bg-[#7C5CFF]/20"
-            >
-              <span>{chip.label}</span>
-              <X className="h-3 w-3" />
-            </button>
-          ))}
+      {tag && (
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-[#9B87FF]/30 bg-[#9B87FF]/10 px-3 py-2 text-xs text-[#7C5CFF] dark:text-[#9B87FF]">
+          <span>
+            Filtering by AniList tag: <strong className="font-semibold">{tag}</strong>
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setTag('');
+              setPage(1);
+              const next = new URLSearchParams(searchParams);
+              next.delete('tag');
+              setSearchParams(next);
+            }}
+            className="inline-flex items-center gap-1 font-medium hover:underline"
+          >
+            <X className="h-3.5 w-3.5" />
+            Clear Tag
+          </button>
         </div>
       )}
 
@@ -657,10 +545,8 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
                   type="button"
                   disabled={loadingMore}
                   onClick={() => {
-                    const next = page + 1;
                     setLoadingMore(true);
-                    setPage(next);
-                    syncParams({ page: next });
+                    setPage((p) => p + 1);
                   }}
                   className="av-btn-press inline-flex items-center gap-1.5 rounded-lg bg-[#7C5CFF] hover:bg-[#9B87FF] px-3.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50 whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
                 >
@@ -671,10 +557,8 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
                 type="button"
                 disabled={page <= 1}
                 onClick={() => {
-                  const prev = Math.max(1, page - 1);
                   setLoadingMore(false);
-                  setPage(prev);
-                  syncParams({ page: prev });
+                  setPage((p) => Math.max(1, p - 1));
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
                 className="av-btn-press inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-white/[0.08] px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-[#F5F3FF] hover:bg-zinc-100 dark:hover:bg-[#20202D] disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
@@ -686,10 +570,8 @@ export function ExplorePage({ mode = 'explore' }: ExplorePageProps) {
                 type="button"
                 disabled={!data.pageInfo.hasNextPage}
                 onClick={() => {
-                  const next = page + 1;
                   setLoadingMore(false);
-                  setPage(next);
-                  syncParams({ page: next });
+                  setPage((p) => p + 1);
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
                 className="av-btn-press inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-white/[0.08] px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-[#F5F3FF] hover:bg-zinc-100 dark:hover:bg-[#20202D] disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"

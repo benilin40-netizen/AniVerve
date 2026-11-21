@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bookmark,
@@ -18,28 +18,15 @@ import {
 import { useTheme } from '../../context/ThemeContext.tsx';
 import { useAuth } from '../../context/AuthContext.tsx';
 import { useDebounce } from '../../hooks/useDebounce.ts';
-import { useFocusTrap } from '../../hooks/useFocusTrap.ts';
 import { anilistService } from '../../services/anilistService.ts';
 import { getPrimaryTitle } from '../../utils/slug.ts';
 import { formatFormat, formatScore } from '../../utils/formatters.ts';
-import { prefetchRoute } from '../../utils/prefetchRoute.ts';
 import type { AnimeSummary } from '../../types/anime.ts';
 import { SafeImage } from '../common/SafeImage.tsx';
 import { SearchOverlay } from './SearchOverlay.tsx';
+import { LivingUniverseParticles } from '../effects/LivingUniverseParticles.tsx';
 import { AnimeQuickViewModal } from '../anime/AnimeQuickViewModal.tsx';
 import { NotificationCenter } from '../notifications/NotificationCenter.tsx';
-import {
-  OfflineIndicator,
-  PWAInstallButton,
-  PWAUpdatePrompt,
-} from '../pwa/PWAInstallButton.tsx';
-import { ConsentBanner } from '../pwa/ConsentBanner.tsx';
-
-const LivingUniverseParticles = React.lazy(() =>
-  import('../effects/LivingUniverseParticles.tsx').then((m) => ({
-    default: m.LivingUniverseParticles,
-  }))
-);
 
 const PRIMARY_NAV = [
   { to: '/', label: 'Home', icon: Home },
@@ -50,13 +37,6 @@ const PRIMARY_NAV = [
   { to: '/watchlist', label: 'Watchlist', icon: Bookmark },
 ];
 
-const MOBILE_TAB_ITEMS = [
-  { to: '/', label: 'Home', icon: Home },
-  { to: '/explore', label: 'Browse', icon: Compass },
-  { to: '/schedule', label: 'Schedule', icon: CalendarClock },
-  { to: '/watchlist', label: 'Watchlist', icon: Bookmark },
-] as const;
-
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useTheme();
   const { user, isAdminAuthenticated } = useAuth();
@@ -66,9 +46,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOverlayOpen, setSearchOverlayOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const [routeAnnouncement, setRouteAnnouncement] = useState('');
-
-  const mobileDrawerRef = useRef<HTMLDivElement | null>(null);
 
   // Inline live search bar with dropdown suggestions
   const [inlineQuery, setInlineQuery] = useState('');
@@ -76,18 +53,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [inlineResults, setInlineResults] = useState<AnimeSummary[]>([]);
   const debouncedInline = useDebounce(inlineQuery, 260);
 
-  useFocusTrap(mobileDrawerRef, mobileMenuOpen, () => setMobileMenuOpen(false));
-
   const isHeroRoute =
     location.pathname === '/' || location.pathname.startsWith('/anime/');
 
   useEffect(() => {
     setMobileMenuOpen(false);
-    const label =
-      location.pathname === '/'
-        ? 'Navigated to AniVerve Home'
-        : `Navigated to ${location.pathname.replace(/\//g, ' ').trim()}`;
-    setRouteAnnouncement(label);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -104,11 +74,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setSearchOverlayOpen(true);
+      } else if (e.key === 'Escape' && mobileMenuOpen) {
+        setMobileMenuOpen(false);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     if (!debouncedInline.trim()) {
@@ -135,20 +107,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="relative min-h-screen bg-[#F6F5FA] text-[#141320] dark:bg-[var(--av-bg-primary,#09090F)] dark:text-[#F5F3FF] flex flex-col">
-      <a href="#main-content" className="av-skip-link">
-        Skip to content
-      </a>
-
-      <div role="status" aria-live="polite" className="sr-only">
-        {routeAnnouncement}
-      </div>
-
-      <Suspense fallback={null}>
-        <LivingUniverseParticles />
-      </Suspense>
-
-      <OfflineIndicator />
-
+      <LivingUniverseParticles />
       {/* Sticky Top Navigation Bar */}
       <header
         className={`fixed top-0 inset-x-0 z-40 h-14 sm:h-16 transition-all duration-300 ${
@@ -164,7 +123,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               type="button"
               onClick={() => setMobileMenuOpen(true)}
               aria-label="Open navigation menu"
-              className={`lg:hidden av-btn-press rounded-lg p-2 min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF] ${
+              className={`lg:hidden av-btn-press rounded-lg p-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF] ${
                 transparentTop
                   ? 'text-[#F5F3FF] hover:bg-white/10'
                   : 'text-zinc-700 dark:text-[#F5F3FF] hover:bg-zinc-100 dark:hover:bg-[#20202D]'
@@ -181,15 +140,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <img
                 src="/branding/aniverve-logo.svg"
                 alt="AniVerve — Anime Beyond Borders"
-                width={132}
-                height={36}
                 className="hidden sm:block h-9 w-auto object-contain"
               />
               <img
                 src="/branding/aniverve-icon.svg"
                 alt="AniVerve"
-                width={32}
-                height={32}
                 className="sm:hidden h-8 w-8 object-contain"
               />
             </Link>
@@ -205,7 +160,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 key={item.to}
                 to={item.to}
                 end={item.to === '/'}
-                onMouseEnter={() => prefetchRoute(item.to)}
                 className={({ isActive }) =>
                   `av-nav-link px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF] ${
                     isActive
@@ -241,9 +195,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           </nav>
 
-          {/* Right: Live Search + PWA Install + Notifications + Theme + Account */}
+          {/* Right: Live Search + Theme + Account */}
           <div className="flex items-center gap-2 shrink-0">
-            <div className="relative hidden md:block w-52 xl:w-64">
+            <div className="relative hidden md:block w-56 xl:w-64">
               <form onSubmit={handleInlineSubmit} className="relative">
                 <Search
                   className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 ${
@@ -306,8 +260,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <button
               type="button"
               onClick={() => setSearchOverlayOpen(true)}
-              aria-label="Open command search"
-              className={`md:hidden av-btn-press rounded-lg p-2 min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF] ${
+              aria-label="Open search"
+              className={`md:hidden av-btn-press rounded-lg p-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF] ${
                 transparentTop
                   ? 'text-[#F5F3FF] hover:bg-white/10'
                   : 'text-zinc-600 dark:text-[#A5A1B5] hover:bg-zinc-100 dark:hover:bg-[#20202D]'
@@ -316,15 +270,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Search className="h-4 w-4" />
             </button>
 
-            <PWAInstallButton compact />
-
             <NotificationCenter transparentTop={transparentTop} />
 
             <button
               type="button"
               onClick={toggleTheme}
               aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-              className={`av-btn-press rounded-lg p-2 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF] ${
+              className={`av-btn-press rounded-lg p-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF] ${
                 transparentTop
                   ? 'text-[#F5F3FF] hover:bg-white/10'
                   : 'text-zinc-600 dark:text-[#A5A1B5] hover:bg-zinc-100 dark:hover:bg-[#20202D]'
@@ -371,12 +323,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Main Content Area */}
       <main
-        id="main-content"
-        tabIndex={-1}
         className={
           isHeroRoute
-            ? 'relative z-10 flex-1 w-full pb-24 md:pb-16 focus:outline-none'
-            : 'relative z-10 flex-1 w-full max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 pt-20 sm:pt-24 pb-24 md:pb-16 focus:outline-none'
+            ? 'relative z-10 flex-1 w-full pb-16'
+            : 'relative z-10 flex-1 w-full max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 pt-20 sm:pt-24 pb-16'
         }
       >
         <div key={location.pathname} className="av-page-enter">
@@ -385,15 +335,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </main>
 
       {/* Compact Platform Footer */}
-      <footer className="border-t border-zinc-200 dark:border-white/[0.08] bg-white/60 dark:bg-[#11111B]/70 pb-16 md:pb-0">
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col lg:flex-row items-center justify-between gap-4 text-xs text-zinc-500 dark:text-[#A5A1B5]">
+      <footer className="border-t border-zinc-200 dark:border-white/[0.08] bg-white/60 dark:bg-[#11111B]/70">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-zinc-500 dark:text-[#A5A1B5]">
           <div className="flex items-center gap-2.5">
             <img
               src="/branding/aniverve-icon.svg"
               alt=""
               aria-hidden="true"
-              width={20}
-              height={20}
               className="h-5 w-5 object-contain"
             />
             <span className="font-bold text-zinc-900 dark:text-[#F5F3FF]">
@@ -402,66 +350,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span aria-hidden="true">·</span>
             <span>Anime Beyond Borders</span>
           </div>
-          <nav aria-label="Footer links" className="flex flex-wrap justify-center items-center gap-x-5 gap-y-2">
+          <nav aria-label="Footer links" className="flex flex-wrap items-center gap-5">
             <Link to="/explore" className="hover:text-zinc-900 dark:hover:text-[#F5F3FF] transition-colors">
               Browse Anime
             </Link>
+            <Link to="/movies" className="hover:text-zinc-900 dark:hover:text-[#F5F3FF] transition-colors">
+              Movies
+            </Link>
+            <Link to="/genres" className="hover:text-zinc-900 dark:hover:text-[#F5F3FF] transition-colors">
+              Genres
+            </Link>
             <Link to="/schedule" className="hover:text-zinc-900 dark:hover:text-[#F5F3FF] transition-colors">
-              Schedule
-            </Link>
-            <Link to="/about" className="hover:text-zinc-900 dark:hover:text-[#F5F3FF] transition-colors">
-              About
-            </Link>
-            <Link to="/contact" className="hover:text-zinc-900 dark:hover:text-[#F5F3FF] transition-colors">
-              Contact
-            </Link>
-            <Link to="/terms" className="hover:text-zinc-900 dark:hover:text-[#F5F3FF] transition-colors">
-              Terms
-            </Link>
-            <Link to="/privacy" className="hover:text-zinc-900 dark:hover:text-[#F5F3FF] transition-colors">
-              Privacy
-            </Link>
-            <Link to="/dmca" className="hover:text-zinc-900 dark:hover:text-[#F5F3FF] transition-colors">
-              DMCA
+              Airing Schedule
             </Link>
             <a href="/sitemap.xml" className="hover:text-zinc-900 dark:hover:text-[#F5F3FF] transition-colors">
               Sitemap
             </a>
             <Link to="/admin/login" className="hover:text-[#9B87FF] transition-colors">
-              Admin
+              Admin Portal
             </Link>
           </nav>
         </div>
       </footer>
-
-      {/* Mobile Bottom Tab Bar (Thumb-zone friendly, <= 10% viewport height) */}
-      <nav
-        aria-label="Mobile bottom navigation"
-        className="md:hidden fixed bottom-0 inset-x-0 z-30 border-t border-zinc-200 dark:border-white/[0.08] bg-white/95 dark:bg-[#09090F]/95 backdrop-blur-xl pb-safe"
-      >
-        <div className="grid grid-cols-4 h-14">
-          {MOBILE_TAB_ITEMS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === '/'}
-                className={({ isActive }) =>
-                  `flex flex-col items-center justify-center gap-0.5 min-h-[44px] text-[11px] font-medium transition-colors ${
-                    isActive
-                      ? 'text-[#7C5CFF] dark:text-[#9B87FF]'
-                      : 'text-zinc-500 dark:text-[#A5A1B5]'
-                  }`
-                }
-              >
-                <Icon className="h-4 w-4" />
-                <span>{item.label}</span>
-              </NavLink>
-            );
-          })}
-        </div>
-      </nav>
 
       {/* Mobile Slide-Out Navigation Drawer */}
       {mobileMenuOpen && (
@@ -473,7 +383,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onClick={() => setMobileMenuOpen(false)}
         >
           <div
-            ref={mobileDrawerRef}
             className="av-drawer-enter w-72 bg-white dark:bg-[#11111B] h-full p-5 flex flex-col border-r border-zinc-200 dark:border-white/[0.08]"
             onClick={(e) => e.stopPropagation()}
           >
@@ -487,7 +396,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 type="button"
                 onClick={() => setMobileMenuOpen(false)}
                 aria-label="Close navigation menu"
-                className="av-btn-press p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-zinc-500 dark:text-[#A5A1B5] hover:bg-zinc-100 dark:hover:bg-[#20202D] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
+                className="av-btn-press p-2 rounded-lg text-zinc-500 dark:text-[#A5A1B5] hover:bg-zinc-100 dark:hover:bg-[#20202D] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -499,7 +408,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 setMobileMenuOpen(false);
                 setSearchOverlayOpen(true);
               }}
-              className="av-btn-press mt-4 flex items-center gap-2.5 rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#171722] px-3 py-2.5 min-h-[44px] text-xs text-zinc-500 dark:text-[#A5A1B5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
+              className="av-btn-press mt-4 flex items-center gap-2.5 rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#171722] px-3 py-2.5 text-xs text-zinc-500 dark:text-[#A5A1B5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
             >
               <Search className="h-4 w-4 text-[#9B87FF]" />
               <span>Search anime...</span>
@@ -514,7 +423,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     to={item.to}
                     end={item.to === '/'}
                     className={({ isActive }) =>
-                      `flex items-center gap-3 rounded-lg px-3 py-2.5 min-h-[44px] text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF] ${
+                      `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF] ${
                         isActive
                           ? 'bg-[#7C5CFF]/15 text-[#7C5CFF] dark:text-[#9B87FF]'
                           : 'text-zinc-600 dark:text-[#A5A1B5] hover:bg-zinc-100 dark:hover:bg-[#171722]'
@@ -530,7 +439,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {(isAdminRoute || isAdminAuthenticated) && (
                 <NavLink
                   to="/admin"
-                  className="flex items-center gap-3 rounded-lg px-3 py-2.5 min-h-[44px] text-sm font-medium text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
+                  className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
                 >
                   <Shield className="h-4 w-4" />
                   <span>Admin Console</span>
@@ -538,11 +447,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               )}
             </div>
 
-            <div className="pt-4 border-t border-zinc-200 dark:border-white/[0.08] space-y-2">
-              <PWAInstallButton />
+            <div className="pt-4 border-t border-zinc-200 dark:border-white/[0.08]">
               <Link
                 to={user || isAdminAuthenticated ? '/profile' : '/login'}
-                className="av-btn-press flex items-center justify-center gap-2 rounded-lg bg-[#7C5CFF] hover:bg-[#9B87FF] py-2.5 min-h-[44px] text-xs font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
+                className="av-btn-press flex items-center justify-center gap-2 rounded-lg bg-[#7C5CFF] hover:bg-[#9B87FF] py-2.5 text-xs font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
               >
                 {isAdminAuthenticated && !user ? (
                   <Shield className="h-4 w-4 text-amber-300" />
@@ -558,8 +466,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <SearchOverlay open={searchOverlayOpen} onClose={() => setSearchOverlayOpen(false)} />
       <AnimeQuickViewModal />
-      <PWAUpdatePrompt />
-      <ConsentBanner />
     </div>
   );
 }

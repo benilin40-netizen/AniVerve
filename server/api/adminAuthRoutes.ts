@@ -14,8 +14,6 @@ import {
   type AdminAuthenticatedRequest,
 } from '../middleware/adminAuthMiddleware.ts';
 import { dbSet, logSecurityEvent } from '../services/db.ts';
-import { rateLimiters } from '../middleware/rateLimit.ts';
-import { adminLoginSchema, changePasswordSchema, validateBody } from '../validation/schemas.ts';
 
 const router = Router();
 
@@ -26,10 +24,13 @@ function getClientMeta(req: Request) {
   };
 }
 
-router.post('/login', rateLimiters.auth, validateBody(adminLoginSchema), async (req, res) => {
+router.post('/login', async (req, res) => {
   const meta = getClientMeta(req);
   try {
-    const { password } = req.body;
+    const { password } = req.body || {};
+    if (!password || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Administrator password is required.' });
+    }
 
     const result = await verifyAdminPasswordAndCreateSession({
       password,
@@ -105,10 +106,16 @@ router.get('/session', async (req, res) => {
   res.json(status);
 });
 
-router.post('/change-password', requireIndependentAdminSession, rateLimiters.auth, validateBody(changePasswordSchema), async (req: AdminAuthenticatedRequest, res) => {
+router.post('/change-password', requireIndependentAdminSession, async (req: AdminAuthenticatedRequest, res) => {
   const meta = getClientMeta(req);
   try {
-    const { currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || typeof currentPassword !== 'string') {
+      return res.status(400).json({ error: 'Current administrator password is required.' });
+    }
+    if (!newPassword || typeof newPassword !== 'string') {
+      return res.status(400).json({ error: 'New administrator password is required.' });
+    }
 
     const rotated = await changeAdminPassword({
       currentPassword,

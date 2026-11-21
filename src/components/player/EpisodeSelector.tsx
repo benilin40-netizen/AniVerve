@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Ban, Check, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { AlertCircle, Check, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import type { DiscoveredEpisode } from '../../types/anime.ts';
 
 interface EpisodeSelectorProps {
@@ -17,12 +17,6 @@ interface EpisodeSelectorProps {
 
 const CHUNK_SIZE = 100;
 
-function isItemPlayable(item: DiscoveredEpisode, hasDiscoveryList: boolean): boolean {
-  if (item.playable === false) return false;
-  if (hasDiscoveryList && item.providers.length === 0) return false;
-  return true;
-}
-
 export function EpisodeSelector({
   totalEpisodes,
   catalogEpisodes,
@@ -36,7 +30,6 @@ export function EpisodeSelector({
   onSelectEpisode,
 }: EpisodeSelectorProps) {
   const watchedSet = useMemo(() => new Set(watchedEpisodes), [watchedEpisodes]);
-  const hasDiscoveryList = discoveredEpisodes !== undefined;
 
   const items: DiscoveredEpisode[] = useMemo(() => {
     if (discoveredEpisodes !== undefined) {
@@ -53,7 +46,6 @@ export function EpisodeSelector({
         isSpecial: false,
         hasSub: true,
         hasDub: true,
-        playable: true,
         providers: [],
         providerMappings: {},
       };
@@ -82,43 +74,9 @@ export function EpisodeSelector({
       ? items.slice(safeChunk * CHUNK_SIZE, (safeChunk + 1) * CHUNK_SIZE)
       : items;
 
-  const prevEpisodeItem = useMemo(() => {
-    if (items.length === 0) return null;
-    if (currentIdx >= 0) {
-      for (let i = currentIdx - 1; i >= 0; i -= 1) {
-        if (isItemPlayable(items[i], hasDiscoveryList)) return items[i];
-      }
-      return null;
-    }
-    for (let i = items.length - 1; i >= 0; i -= 1) {
-      if (items[i].episodeNumber < currentEpisode && isItemPlayable(items[i], hasDiscoveryList)) {
-        return items[i];
-      }
-    }
-    return null;
-  }, [items, currentIdx, currentEpisode, hasDiscoveryList]);
-
-  const nextEpisodeItem = useMemo(() => {
-    if (items.length === 0) return null;
-    if (currentIdx >= 0) {
-      for (let i = currentIdx + 1; i < items.length; i += 1) {
-        if (isItemPlayable(items[i], hasDiscoveryList)) return items[i];
-      }
-      return null;
-    }
-    for (let i = 0; i < items.length; i += 1) {
-      if (items[i].episodeNumber > currentEpisode && isItemPlayable(items[i], hasDiscoveryList)) {
-        return items[i];
-      }
-    }
-    return null;
-  }, [items, currentIdx, currentEpisode, hasDiscoveryList]);
-
-  const playableCount = useMemo(
-    () => items.filter((item) => isItemPlayable(item, hasDiscoveryList)).length,
-    [items, hasDiscoveryList]
-  );
-  const unavailableCount = items.length - playableCount;
+  const prevEpisodeItem = currentIdx > 0 ? items[currentIdx - 1] : null;
+  const nextEpisodeItem =
+    currentIdx >= 0 && currentIdx < items.length - 1 ? items[currentIdx + 1] : null;
 
   const currentItem = currentIdx >= 0 ? items[currentIdx] : null;
   const displayCount = items.length;
@@ -132,28 +90,28 @@ export function EpisodeSelector({
               ? 'Discovering Available Episodes...'
               : isEstimatedCount && !discoveredEpisodes?.length
                 ? `Known Aired Episodes (${displayCount})`
-                : unavailableCount > 0
-                  ? `Episodes (${playableCount} playable · ${unavailableCount} unavailable)`
-                  : `Episodes (${displayCount})`}
+                : `Episodes (${displayCount})`}
           </h3>
           <p className="text-xs text-zinc-500 dark:text-[#A5A1B5] tabular-nums">
             Selected: Episode {currentEpisode}
             {currentItem?.title ? ` · ${currentItem.title}` : ''}
-            {currentItem && !isItemPlayable(currentItem, hasDiscoveryList)
-              ? ' · Unavailable on active providers'
-              : discoveryStatus === 'partial'
-                ? ' · Partial provider results'
-                : isEstimatedCount && !discoveredEpisodes?.length
-                  ? ' · Total series count not yet confirmed'
-                  : ''}
+            {discoveryStatus === 'partial'
+              ? ' · Partial provider results'
+              : isEstimatedCount && !discoveredEpisodes?.length
+                ? ' · Total series count not yet confirmed'
+                : ''}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
-            disabled={!prevEpisodeItem}
-            onClick={() => prevEpisodeItem && onSelectEpisode(prevEpisodeItem.episodeNumber)}
+            disabled={!prevEpisodeItem && currentEpisode <= 1}
+            onClick={() =>
+              onSelectEpisode(
+                prevEpisodeItem ? prevEpisodeItem.episodeNumber : Math.max(1, currentEpisode - 1)
+              )
+            }
             className="av-btn-press inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-white/[0.08] px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-[#F5F3FF] hover:bg-zinc-100 dark:hover:bg-[#20202D] disabled:opacity-40 disabled:pointer-events-none whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
@@ -161,8 +119,12 @@ export function EpisodeSelector({
           </button>
           <button
             type="button"
-            disabled={!nextEpisodeItem}
-            onClick={() => nextEpisodeItem && onSelectEpisode(nextEpisodeItem.episodeNumber)}
+            disabled={!nextEpisodeItem && (displayCount === 0 || currentEpisode >= displayCount)}
+            onClick={() =>
+              onSelectEpisode(
+                nextEpisodeItem ? nextEpisodeItem.episodeNumber : currentEpisode + 1
+              )
+            }
             className="av-btn-press inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-white/[0.08] px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-[#F5F3FF] hover:bg-zinc-100 dark:hover:bg-[#20202D] disabled:opacity-40 disabled:pointer-events-none whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
           >
             Next
@@ -218,46 +180,24 @@ export function EpisodeSelector({
         <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-2 max-h-64 overflow-y-auto pr-1">
           {visibleItems.map((item) => {
             const ep = item.episodeNumber;
-            const playable = isItemPlayable(item, hasDiscoveryList);
             const isActive = ep === currentEpisode;
             const isWatched = watchedSet.has(ep);
-            const displayLabel =
-              item.isSpecial && Number.isInteger(ep) ? `SP ${item.numberLabel}` : item.numberLabel;
-
             return (
               <button
                 key={`${item.numberLabel}-${ep}`}
                 type="button"
-                disabled={!playable}
-                aria-label={
-                  playable
-                    ? `Episode ${item.numberLabel}${item.title ? `: ${item.title}` : ''}`
-                    : `Episode ${item.numberLabel} — Unavailable on active providers`
-                }
-                title={
-                  !playable
-                    ? item.unavailableReason || `Episode ${item.numberLabel} is unavailable on current streaming providers`
-                    : item.title || `Episode ${item.numberLabel}`
-                }
-                onClick={() => playable && onSelectEpisode(ep)}
+                title={item.title || `Episode ${item.numberLabel}`}
+                onClick={() => onSelectEpisode(ep)}
                 className={`av-btn-press relative flex items-center justify-center gap-1 rounded-lg py-2 px-1 text-xs font-mono font-medium tabular-nums focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#9B87FF] ${
-                  !playable
-                    ? isActive
-                      ? 'border border-rose-500/40 bg-rose-500/10 text-rose-400 line-through cursor-not-allowed opacity-75'
-                      : 'border border-zinc-200 dark:border-white/[0.05] bg-zinc-100/60 dark:bg-[#14141E] text-zinc-400 dark:text-[#A5A1B5]/45 line-through cursor-not-allowed'
-                    : isActive
-                      ? 'bg-[#7C5CFF] text-white shadow-sm shadow-[#7C5CFF]/30'
-                      : isWatched
-                        ? 'bg-[#9B87FF]/12 text-[#7C5CFF] dark:text-[#9B87FF] border border-[#9B87FF]/30 hover:bg-[#9B87FF]/20'
-                        : 'bg-zinc-100 dark:bg-[#20202D] text-zinc-700 dark:text-[#F5F3FF]/85 hover:bg-zinc-200 dark:hover:bg-[#2A2A3B]'
+                  isActive
+                    ? 'bg-[#7C5CFF] text-white shadow-sm shadow-[#7C5CFF]/30'
+                    : isWatched
+                      ? 'bg-[#9B87FF]/12 text-[#7C5CFF] dark:text-[#9B87FF] border border-[#9B87FF]/30 hover:bg-[#9B87FF]/20'
+                      : 'bg-zinc-100 dark:bg-[#20202D] text-zinc-700 dark:text-[#F5F3FF]/85 hover:bg-zinc-200 dark:hover:bg-[#2A2A3B]'
                 }`}
               >
-                <span>{displayLabel}</span>
-                {!playable ? (
-                  <Ban className="h-3 w-3 shrink-0" aria-hidden="true" />
-                ) : (
-                  isWatched && !isActive && <Check className="h-3 w-3 shrink-0" aria-hidden="true" />
-                )}
+                <span>{item.isSpecial && Number.isInteger(ep) ? `SP ${item.numberLabel}` : item.numberLabel}</span>
+                {isWatched && !isActive && <Check className="h-3 w-3 shrink-0" />}
               </button>
             );
           })}

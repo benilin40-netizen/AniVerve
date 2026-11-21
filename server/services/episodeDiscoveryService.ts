@@ -24,14 +24,7 @@ import {
   reliableFetch,
   TIMEOUTS,
 } from '../utils/httpClient.ts';
-import { inspectHlsManifest, probeDirectMediaStream } from '../../src/utils/hlsAudio.ts';
-import {
-  createSignedHlsProxyUrl,
-  deriveUpstreamReferrer,
-  unwrapKnownSubtitleProxy,
-  validateUpstreamMediaUrl,
-} from './hlsProxyService.ts';
-import { inspectAniEmbedHtml } from './providerInspection.ts';
+import { probeDirectMediaStream } from '../../src/utils/hlsAudio.ts';
 
 interface YenimeEpisodeRaw {
   id?: number | string;
@@ -74,44 +67,13 @@ interface YenimeAnimeResponse {
   embed?: string;
 }
 
-interface YenimeServerStreamCandidate {
-  id?: string;
-  name?: string;
-  serverId?: string;
-  linkId?: string;
-  embedUrl?: string;
-  m3u8?: string;
-  proxiedUrl?: string;
-  quality?: number;
-  tracks?: Array<{ file: string; label?: string; kind?: string }>;
-  intro?: { start: number; end: number };
-  outro?: { start: number; end: number };
-  skipData?: {
-    intro?: [number, number] | { start: number; end: number };
-    outro?: [number, number] | { start: number; end: number };
-  };
-}
-
 interface YenimeMegaplayResponse {
   m3u8?: string;
   proxiedUrl?: string;
   embedUrl?: string;
   title?: string;
   server?: string;
-  servers?: YenimeServerStreamCandidate[];
-  intro?: { start: number; end: number } | null;
-  outro?: { start: number; end: number } | null;
   tracks?: Array<{ file: string; label?: string; kind?: string }>;
-  error?: string;
-}
-
-interface YenimeSourcesResponse {
-  episode?: number;
-  types?: Array<{
-    type?: string;
-    label?: string;
-    servers?: YenimeServerStreamCandidate[];
-  }>;
   error?: string;
 }
 
@@ -259,14 +221,8 @@ async function discoverYenimeEpisodes(
 
     // Fallback search by title when MAL ID is missing or Yenime had no direct MAL mapping
     if (!resolvedPayload) {
-      const searchQueries = Array.from(
-        new Set(
-          [anime.title.romaji, anime.title.english, anime.title.userPreferred]
-            .map((t) => t?.trim())
-            .filter((t): t is string => Boolean(t))
-        )
-      );
-      for (const searchTitle of searchQueries) {
+      const searchTitle = anime.title.romaji || anime.title.english;
+      if (searchTitle) {
         const searchRes = await reliableFetch(
           `${baseUrl}/search?q=${encodeURIComponent(searchTitle)}`,
           {
@@ -278,45 +234,45 @@ async function discoverYenimeEpisodes(
           }
         ).catch(() => null);
 
-        if (!searchRes?.ok) continue;
-        const searchJson = (await searchRes.json().catch(() => null)) as
-          | { results?: Array<{ id?: string; title?: string; malId?: number | null }>; data?: Array<{ id?: string; title?: string; malId?: number | null }> }
-          | Array<{ id?: string; title?: string; malId?: number | null }>
-          | null;
-        const candidates = Array.isArray(searchJson)
-          ? searchJson
-          : searchJson?.results || searchJson?.data || [];
-        const best = candidates.find(
-          (c) =>
-            (anime.idMal && c.malId === anime.idMal) ||
-            titlesRoughlyMatch(anime, c.title)
-        );
-
-        if (!best?.id) continue;
-        const epRes = await reliableFetch(
-          `${baseUrl}/episodes?id=${encodeURIComponent(best.id)}`,
-          {
-            method: 'GET',
-            timeoutMs: TIMEOUTS.EPISODE_DISCOVERY_MS,
-            maxAttempts: 2,
-            externalSignal: signal,
-            headers: { Accept: 'application/json' },
-          }
-        ).catch(() => null);
-
-        if (epRes?.ok) {
-          const epJson = (await epRes.json().catch(() => null)) as
-            | YenimeAnimeResponse
-            | YenimeEpisodeRaw[]
+        if (searchRes?.ok) {
+          const searchJson = (await searchRes.json().catch(() => null)) as
+            | { results?: Array<{ id?: string; title?: string; malId?: number | null }>; data?: Array<{ id?: string; title?: string; malId?: number | null }> }
+            | Array<{ id?: string; title?: string; malId?: number | null }>
             | null;
-          if (Array.isArray(epJson) && epJson.length > 0) {
-            resolvedPayload = { episodes: epJson, anikoto: { id: best.id, title: best.title } };
-            matchedMalId = best.malId ?? matchedMalId;
-            break;
-          } else if (epJson && !Array.isArray(epJson) && Array.isArray(epJson.episodes)) {
-            resolvedPayload = epJson;
-            matchedMalId = best.malId ?? matchedMalId;
-            break;
+          const candidates = Array.isArray(searchJson)
+            ? searchJson
+            : searchJson?.results || searchJson?.data || [];
+          const best = candidates.find(
+            (c) =>
+              (anime.idMal && c.malId === anime.idMal) ||
+              titlesRoughlyMatch(anime, c.title)
+          );
+
+          if (best?.id) {
+            const epRes = await reliableFetch(
+              `${baseUrl}/episodes?id=${encodeURIComponent(best.id)}`,
+              {
+                method: 'GET',
+                timeoutMs: TIMEOUTS.EPISODE_DISCOVERY_MS,
+                maxAttempts: 2,
+                externalSignal: signal,
+                headers: { Accept: 'application/json' },
+              }
+            ).catch(() => null);
+
+            if (epRes?.ok) {
+              const epJson = (await epRes.json().catch(() => null)) as
+                | YenimeAnimeResponse
+                | YenimeEpisodeRaw[]
+                | null;
+              if (Array.isArray(epJson) && epJson.length > 0) {
+                resolvedPayload = { episodes: epJson, anikoto: { id: best.id, title: best.title } };
+                matchedMalId = best.malId ?? matchedMalId;
+              } else if (epJson && !Array.isArray(epJson) && Array.isArray(epJson.episodes)) {
+                resolvedPayload = epJson;
+                matchedMalId = best.malId ?? matchedMalId;
+              }
+            }
           }
         }
       }
@@ -489,19 +445,19 @@ async function probeAniEmbedAnime(
 
     const html = await res.text().catch(() => '');
     const latencyMs = Date.now() - startedAt;
-    const inspection = inspectAniEmbedHtml(html, res.status);
+    const hasShell = res.status >= 200 && res.status < 400 && (html.includes('<html') || html.includes('<!doctype html'));
     const airedCount = getKnownAiredCeiling(anime) ?? 0;
 
     return {
       status: {
         providerKey: 'aniembed',
         providerName: provider.name,
-        status: inspection.ok ? 'ok' : 'error',
-        episodeCount: inspection.ok ? Math.max(airedCount, 1) : 0,
+        status: hasShell ? 'ok' : 'error',
+        episodeCount: hasShell ? Math.max(airedCount, 1) : 0,
         latencyMs,
-        error: inspection.ok ? null : inspection.reason || `AniEmbed returned HTTP ${inspection.extractedStatus}`,
+        error: hasShell ? null : `AniEmbed returned HTTP ${res.status}`,
       },
-      verifiedReachable: inspection.ok,
+      verifiedReachable: hasShell,
     };
   } catch (err) {
     const latencyMs = Date.now() - startedAt;
@@ -733,34 +689,6 @@ export async function discoverAnimeEpisodes(
           }
         }
 
-        for (const ep of episodeMap.values()) {
-          ep.playable = ep.providers.length > 0;
-          ep.unavailableReason = ep.playable
-            ? null
-            : 'No verified playable stream on current providers.';
-        }
-
-        // If some episodes are verified playable while aired catalog episodes remain missing upstream,
-        // mark those missing aired episodes explicitly as unplayable instead of failing inside player.
-        if (episodeMap.size > 0 && airedCeiling && airedCeiling > 1) {
-          for (let epNum = 1; epNum <= airedCeiling; epNum++) {
-            if (!episodeMap.has(epNum)) {
-              episodeMap.set(epNum, {
-                episodeNumber: epNum,
-                numberLabel: String(epNum),
-                title: anime.streamingEpisodes?.[epNum - 1]?.title || null,
-                isSpecial: false,
-                hasSub: false,
-                hasDub: false,
-                playable: false,
-                unavailableReason: 'Episode not yet indexed on active streaming providers.',
-                providers: [],
-                providerMappings: {},
-              });
-            }
-          }
-        }
-
         const anyProviderFailed = providerStatuses.some(
           (s) => s.status === 'error' || s.status === 'timeout'
         );
@@ -769,12 +697,8 @@ export async function discoverAnimeEpisodes(
           (a, b) => a.episodeNumber - b.episodeNumber
         );
 
-        const playableCount = episodes.filter((e) => e.playable !== false).length;
         const maxIntegerEpisode = episodes.reduce(
-          (max, e) =>
-            e.playable !== false && Number.isInteger(e.episodeNumber) && e.episodeNumber > max
-              ? e.episodeNumber
-              : max,
+          (max, e) => (Number.isInteger(e.episodeNumber) && e.episodeNumber > max ? e.episodeNumber : max),
           0
         );
         const reportedPartial =
@@ -787,7 +711,7 @@ export async function discoverAnimeEpisodes(
             maxIntegerEpisode < anime.episodes);
 
         const discoveryStatus: EpisodeDiscoveryResult['discoveryStatus'] =
-          playableCount === 0
+          episodes.length === 0
             ? 'unavailable'
             : reportedPartial
               ? 'partial'
@@ -799,10 +723,10 @@ export async function discoverAnimeEpisodes(
           .join(', ');
 
         const notice =
-          playableCount === 0
+          episodes.length === 0
             ? anime.episodes
-              ? `No playable streams are available for ${primaryTitle} on current providers yet (AniList lists ${anime.episodes} episode${anime.episodes === 1 ? '' : 's'}).`
-              : `No playable streams are available for ${primaryTitle} on current providers yet.`
+              ? `No playable episodes could be verified from active streaming providers yet (AniList lists ${anime.episodes} catalog episode${anime.episodes === 1 ? '' : 's'} as reference).`
+              : 'No playable episodes could be verified from active streaming providers yet.'
             : failedNames
               ? `Partial results: ${failedNames} did not respond in time.`
               : null;
@@ -812,7 +736,7 @@ export async function discoverAnimeEpisodes(
           malId: anime.idMal ?? null,
           title: primaryTitle,
           catalogEpisodes: anime.episodes ?? null,
-          discoveredCount: playableCount,
+          discoveredCount: episodes.length,
           discoveryStatus,
           partialResults: reportedPartial,
           providers: providerStatuses,
@@ -822,12 +746,8 @@ export async function discoverAnimeEpisodes(
           notice,
         };
 
-        // Cache complete results for 10 mins, partial/unavailable results briefly so recovery happens fast
-        setCached(
-          cacheKey,
-          result,
-          discoveryStatus === 'complete' ? 600 : discoveryStatus === 'partial' ? 60 : 30
-        );
+        // Cache complete results for 10 mins, partial results for 60s so they recover quickly
+        setCached(cacheKey, result, discoveryStatus === 'complete' ? 600 : 60);
         return result;
       }
     );
@@ -868,202 +788,6 @@ function classifyErrorCategory(
     return 'config_error';
   }
   return 'network_error';
-}
-
-function normalizeSkipRange(
-  raw: [number, number] | { start: number; end: number } | null | undefined
-): { start: number; end: number } | undefined {
-  if (!raw) return undefined;
-  if (Array.isArray(raw) && raw.length >= 2) {
-    const start = Number(raw[0]);
-    const end = Number(raw[1]);
-    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
-      return { start, end };
-    }
-    return undefined;
-  }
-  if (!Array.isArray(raw) && typeof raw === 'object') {
-    const start = Number(raw.start);
-    const end = Number(raw.end);
-    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
-      return { start, end };
-    }
-  }
-  return undefined;
-}
-
-async function probeHlsManifestWithHeaders(
-  streamUrl: string,
-  headers: { referer?: string; origin?: string },
-  signal?: AbortSignal
-): Promise<{ ok: boolean; hasAudio: 'yes' | 'no' | 'unknown' }> {
-  if (!validateUpstreamMediaUrl(streamUrl)) {
-    return { ok: false, hasAudio: 'unknown' };
-  }
-  try {
-    const reqHeaders: Record<string, string> = {
-      'User-Agent': BROWSER_USER_AGENT,
-      Accept: 'application/vnd.apple.mpegurl, application/x-mpegurl, */*',
-    };
-    if (headers.referer) reqHeaders.Referer = headers.referer;
-    if (headers.origin) reqHeaders.Origin = headers.origin;
-
-    const res = await reliableFetch(streamUrl, {
-      method: 'GET',
-      redirect: 'follow',
-      timeoutMs: 7_000,
-      maxAttempts: 1,
-      externalSignal: signal,
-      headers: reqHeaders,
-    });
-    if (!(res.status === 200 || res.status === 206)) {
-      try {
-        await res.body?.cancel();
-      } catch {
-        // ignore
-      }
-      return { ok: false, hasAudio: 'unknown' };
-    }
-    const text = await res.text();
-    if (!text.includes('#EXTM3U')) {
-      return { ok: false, hasAudio: 'unknown' };
-    }
-    const inspection = inspectHlsManifest(text, streamUrl);
-    return { ok: inspection.validM3u8, hasAudio: inspection.hasAudio };
-  } catch {
-    return { ok: false, hasAudio: 'unknown' };
-  }
-}
-
-async function resolveYenimeViaSourcesFallback(params: {
-  baseUrl: string;
-  anilistId: number;
-  anime: AnimeDetail | null;
-  episodeNumber: number;
-  lang: 'sub' | 'dub';
-  signal?: AbortSignal;
-}): Promise<YenimeMegaplayResponse | null> {
-  const { baseUrl, anilistId, anime, episodeNumber, lang, signal } = params;
-
-  const extractFromServersToken = async (
-    serversToken: string
-  ): Promise<YenimeMegaplayResponse | null> => {
-    const srcRes = await reliableFetch(
-      `${baseUrl}/sources?servers=${encodeURIComponent(serversToken)}`,
-      {
-        method: 'GET',
-        timeoutMs: TIMEOUTS.STREAM_RESOLUTION_MS,
-        maxAttempts: 2,
-        externalSignal: signal,
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': BROWSER_USER_AGENT,
-        },
-      }
-    ).catch(() => null);
-    if (!srcRes?.ok) return null;
-
-    const srcJson = (await srcRes.json().catch(() => null)) as YenimeSourcesResponse | null;
-    const typeGroup = srcJson?.types?.find(
-      (t) => String(t.type || '').toLowerCase() === lang
-    );
-    const serverList = typeGroup?.servers || [];
-    const primaryServer = serverList.find((s) => s.m3u8 || s.embedUrl);
-    if (!primaryServer) return null;
-
-    const intro = normalizeSkipRange(primaryServer.skipData?.intro || primaryServer.intro);
-    const outro = normalizeSkipRange(primaryServer.skipData?.outro || primaryServer.outro);
-
-    return {
-      m3u8: primaryServer.m3u8,
-      proxiedUrl: primaryServer.proxiedUrl,
-      embedUrl: primaryServer.embedUrl,
-      server: primaryServer.name || 'HD-1',
-      tracks: primaryServer.tracks,
-      intro: intro ?? null,
-      outro: outro ?? null,
-      servers: serverList,
-    };
-  };
-
-  // Reuse serversToken from recent episode discovery cache if already fetched
-  const cachedDiscovery = getCached<EpisodeDiscoveryResult>(`anime:episodes:v2:${anilistId}`);
-  const cachedEp = cachedDiscovery?.episodes?.find(
-    (e) => e.episodeNumber === episodeNumber
-  );
-  const cachedToken = cachedEp?.providerMappings?.yenime?.serversToken;
-  if (cachedToken) {
-    const extracted = await extractFromServersToken(cachedToken);
-    if (extracted) return extracted;
-  }
-
-  if (!anime) return null;
-  const searchQueries = Array.from(
-    new Set(
-      [anime.title?.romaji, anime.title?.english, anime.title?.userPreferred]
-        .map((t) => t?.trim())
-        .filter((t): t is string => Boolean(t))
-    )
-  );
-
-  for (const query of searchQueries) {
-    const searchRes = await reliableFetch(
-      `${baseUrl}/search?q=${encodeURIComponent(query)}`,
-      {
-        method: 'GET',
-        timeoutMs: TIMEOUTS.EPISODE_DISCOVERY_MS,
-        maxAttempts: 2,
-        externalSignal: signal,
-        headers: { Accept: 'application/json' },
-      }
-    ).catch(() => null);
-    if (!searchRes?.ok) continue;
-
-    const searchJson = (await searchRes.json().catch(() => null)) as
-      | { results?: Array<{ id?: string; title?: string; malId?: number | null }>; data?: Array<{ id?: string; title?: string; malId?: number | null }> }
-      | Array<{ id?: string; title?: string; malId?: number | null }>
-      | null;
-    const candidates = Array.isArray(searchJson)
-      ? searchJson
-      : searchJson?.results || searchJson?.data || [];
-    const best = candidates.find(
-      (c) =>
-        (anime.idMal && c.malId === anime.idMal) ||
-        titlesRoughlyMatch(anime, c.title)
-    );
-    if (!best?.id) continue;
-
-    const epRes = await reliableFetch(
-      `${baseUrl}/episodes?id=${encodeURIComponent(best.id)}`,
-      {
-        method: 'GET',
-        timeoutMs: TIMEOUTS.EPISODE_DISCOVERY_MS,
-        maxAttempts: 2,
-        externalSignal: signal,
-        headers: { Accept: 'application/json' },
-      }
-    ).catch(() => null);
-    if (!epRes?.ok) continue;
-
-    const epJson = (await epRes.json().catch(() => null)) as
-      | YenimeAnimeResponse
-      | YenimeEpisodeRaw[]
-      | null;
-    const rawEpisodes = Array.isArray(epJson)
-      ? epJson
-      : epJson && Array.isArray(epJson.episodes)
-        ? epJson.episodes
-        : [];
-    const matchedEp = rawEpisodes.find(
-      (ep) => parseEpisodeNumber(ep.number) === episodeNumber
-    );
-    if (matchedEp?.servers) {
-      const extracted = await extractFromServersToken(matchedEp.servers);
-      if (extracted) return extracted;
-    }
-  }
-
-  return null;
 }
 
 export async function resolveEpisodeSources(
@@ -1213,7 +937,7 @@ export async function resolveEpisodeSources(
                 if (
                   candidate &&
                   !candidate.error &&
-                  (candidate.m3u8 || candidate.embedUrl || candidate.servers?.length)
+                  (candidate.m3u8 || candidate.embedUrl)
                 ) {
                   payload = candidate;
                   break;
@@ -1230,23 +954,11 @@ export async function resolveEpisodeSources(
               }
             }
 
-            // Secondary Yenime recovery: /search -> /episodes -> /sources?servers=...
             if (!payload) {
-              payload = await resolveYenimeViaSourcesFallback({
-                baseUrl,
-                anilistId,
-                anime,
-                episodeNumber,
-                lang,
-                signal: options?.signal,
-              });
-            }
-
-            if (!payload) {
-              if (lastStatus === 404 || lastStatus === 400 || lastStatus === 200 || lastStatus === 0) {
+              if (lastStatus === 404 || lastStatus === 400 || lastStatus === 200) {
                 throw new HttpRequestError(
                   `Episode ${episodeNumber} (${lang.toUpperCase()}) unavailable on Yenime.`,
-                  { status: lastStatus === 200 || lastStatus === 0 ? 404 : lastStatus, retryable: false }
+                  { status: lastStatus === 200 ? 404 : lastStatus, retryable: false }
                 );
               }
               throw new HttpRequestError(
@@ -1255,80 +967,7 @@ export async function resolveEpisodeSources(
               );
             }
 
-            const streamCandidates: YenimeServerStreamCandidate[] = [];
-            if (payload.m3u8 || payload.embedUrl) {
-              streamCandidates.push({
-                name: payload.server || 'Primary',
-                m3u8: payload.m3u8,
-                embedUrl: payload.embedUrl,
-                tracks: payload.tracks,
-                intro: payload.intro || undefined,
-                outro: payload.outro || undefined,
-              });
-            }
-            if (Array.isArray(payload.servers)) {
-              for (const srv of payload.servers) {
-                if (srv?.m3u8 && srv.m3u8 !== payload.m3u8) {
-                  streamCandidates.push(srv);
-                }
-              }
-            }
-
-            let directPlayable = false;
-            let directHlsUrl: string | null = null;
-            let proxiedHlsUrl: string | null = null;
-            let directStreamHasAudio: 'yes' | 'no' | 'unknown' = 'unknown';
-            let chosenCandidate: YenimeServerStreamCandidate = streamCandidates[0] || {};
-
-            for (const cand of streamCandidates) {
-              if (!cand.m3u8) continue;
-
-              // 1. Check direct CORS accessibility
-              const directProbe = await probeDirectMediaStream(
-                cand.m3u8,
-                options?.signal,
-                { userAgent: BROWSER_USER_AGENT }
-              );
-              if (directProbe.accessible && directProbe.hasAudio === 'no') {
-                directStreamHasAudio = 'no';
-                continue;
-              }
-              if (directProbe.accessible && directProbe.corsAccessible && directProbe.hasAudio !== 'no') {
-                directPlayable = true;
-                directHlsUrl = cand.m3u8;
-                directStreamHasAudio = directProbe.hasAudio;
-                chosenCandidate = cand;
-                break;
-              }
-
-              // 2. Verify with upstream Referer and issue signed HLS proxy URL for native playback
-              const refCtx = deriveUpstreamReferrer(cand.embedUrl || payload.embedUrl, cand.m3u8);
-              const proxiedProbe = await probeHlsManifestWithHeaders(
-                cand.m3u8,
-                refCtx,
-                options?.signal
-              );
-              if (proxiedProbe.ok && proxiedProbe.hasAudio === 'no') {
-                directStreamHasAudio = 'no';
-                continue;
-              }
-              if (proxiedProbe.ok && proxiedProbe.hasAudio !== 'no') {
-                const signed = createSignedHlsProxyUrl(cand.m3u8, {
-                  referer: refCtx.referer,
-                  origin: refCtx.origin,
-                  kind: 'hls',
-                });
-                if (signed) {
-                  directPlayable = true;
-                  proxiedHlsUrl = signed;
-                  directStreamHasAudio = proxiedProbe.hasAudio;
-                  chosenCandidate = cand;
-                  break;
-                }
-              }
-            }
-
-            const defaultTemplateEmbed = buildProviderEmbedUrl(provider, {
+            const embedUrl = buildProviderEmbedUrl(provider, {
               anilistId,
               malId,
               episode: episodeNumber,
@@ -1337,28 +976,33 @@ export async function resolveEpisodeSources(
               startSec,
             });
 
-            const candidateEmbedRaw = chosenCandidate.embedUrl || payload.embedUrl || null;
-            const candidateEmbedHttps =
-              candidateEmbedRaw && validateUpstreamMediaUrl(candidateEmbedRaw)
-                ? candidateEmbedRaw
-                : null;
-
-            // Prefer verified megabuzz/vhscdn embed (which matches sub/dub cleanly) when available,
-            // while honoring configured player.yenime.net embeds when no separate verified embed was supplied.
-            const embedUrl =
-              (lang === 'dub' || directPlayable) && candidateEmbedHttps
-                ? candidateEmbedHttps
-                : candidateEmbedHttps || defaultTemplateEmbed;
-
             const parsedEmbed = new URL(embedUrl);
             if (parsedEmbed.protocol !== 'https:') {
               throw new Error('Yenime resolved non-HTTPS player URL.');
             }
 
-            const rawTracks = chosenCandidate.tracks || payload.tracks || [];
-            const refOrigin = deriveUpstreamReferrer(embedUrl, chosenCandidate.m3u8 || payload.m3u8);
-            const verifiedSubtitles = Array.isArray(rawTracks)
-              ? rawTracks
+            let directPlayable = false;
+            let directStreamHasAudio: 'yes' | 'no' | 'unknown' = 'unknown';
+
+            // Probe only the direct unproxied manifest URL without evading upstream Referer checks.
+            // Browsers can play direct HLS natively only when accessible over CORS with valid audio.
+            const candidateDirectUrl = payload.m3u8 || null;
+            if (candidateDirectUrl) {
+              const directProbe = await probeDirectMediaStream(
+                candidateDirectUrl,
+                options?.signal,
+                { userAgent: BROWSER_USER_AGENT }
+              );
+              if (directProbe.accessible) {
+                directStreamHasAudio = directProbe.hasAudio;
+                if (directProbe.corsAccessible && directProbe.hasAudio !== 'no') {
+                  directPlayable = true;
+                }
+              }
+            }
+
+            const verifiedSubtitles = Array.isArray(payload.tracks)
+              ? payload.tracks
                   .filter((t) => {
                     if (!t?.file) return false;
                     try {
@@ -1367,44 +1011,23 @@ export async function resolveEpisodeSources(
                       return false;
                     }
                   })
-                  .map((t) => {
-                    const unwrapped = unwrapKnownSubtitleProxy(t.file, refOrigin.referer);
-                    const needsLocalProxy =
-                      t.file.includes('proxy2.neonflix.st') ||
-                      unwrapped.targetUrl !== t.file;
-                    const proxiedVtt = needsLocalProxy
-                      ? createSignedHlsProxyUrl(unwrapped.targetUrl, {
-                          referer: unwrapped.referer || refOrigin.referer,
-                          origin: unwrapped.origin || refOrigin.origin,
-                          kind: 'vtt',
-                        })
-                      : null;
-                    return {
-                      file: proxiedVtt || t.file,
-                      label: t.label || 'Subtitle',
-                      kind: t.kind,
-                    };
-                  })
+                  .map((t) => ({
+                    file: t.file,
+                    label: t.label || 'Subtitle',
+                    kind: t.kind,
+                  }))
               : [];
-
-            const intro = normalizeSkipRange(
-              chosenCandidate.skipData?.intro || chosenCandidate.intro || payload.intro
-            );
-            const outro = normalizeSkipRange(
-              chosenCandidate.skipData?.outro || chosenCandidate.outro || payload.outro
-            );
 
             const latencyMs = Date.now() - startedAt;
             void recordPlaybackSuccess('yenime', latencyMs);
 
-            const activeServerName = chosenCandidate.name || payload.server;
-            const serverLabel = proxiedHlsUrl
-              ? `${activeServerName ? `${activeServerName} · ` : ''}Proxied HLS (${lang.toUpperCase()})`
-              : directPlayable
-                ? `${activeServerName ? `${activeServerName} · ` : ''}Direct HLS`
-                : activeServerName
-                  ? `${activeServerName} · Embed (${lang.toUpperCase()})`
-                  : `Yenime Embed (${lang.toUpperCase()})`;
+            const serverLabel = directPlayable
+              ? `${payload.server ? `${payload.server} · ` : ''}Direct HLS`
+              : lang === 'dub'
+                ? 'Yenime Embed (SUB player · switch to AniEmbed for DUB)'
+                : payload.server
+                  ? `${payload.server} · Official Embed`
+                  : 'Yenime Official Embed';
 
             return {
               providerKey: 'yenime',
@@ -1412,12 +1035,11 @@ export async function resolveEpisodeSources(
               role: provider.priority <= 1 ? 'primary' : 'backup',
               format: directPlayable ? 'hls' : 'embed',
               embedUrl,
-              hlsUrl: directHlsUrl,
-              proxiedHlsUrl,
+              hlsUrl: directPlayable ? payload.m3u8 || null : null,
+              proxiedHlsUrl: null,
               directPlayable,
               directStreamHasAudio,
               subtitles: verifiedSubtitles,
-              skipData: intro || outro ? { intro, outro } : null,
               audioTrack: lang,
               verified: true,
               refreshable: true,
@@ -1462,15 +1084,10 @@ export async function resolveEpisodeSources(
             );
           }
 
-          const inspection = inspectAniEmbedHtml(html, res.status, lang);
-          if (!inspection.ok) {
+          if (res.status >= 400 || !(html.includes('<html') || html.includes('<!doctype html'))) {
             throw new HttpRequestError(
-              inspection.reason ||
-                `AniEmbed returned HTTP ${inspection.extractedStatus} for episode ${episodeNumber}.`,
-              {
-                status: inspection.extractedStatus || 404,
-                retryable: inspection.extractedStatus >= 500,
-              }
+              `AniEmbed returned HTTP ${res.status} for episode ${episodeNumber}.`,
+              { status: res.status, retryable: res.status >= 500 }
             );
           }
 
@@ -1537,20 +1154,17 @@ export async function resolveEpisodeSources(
         }
       });
 
-      // Prefer verified direct/proxied HLS sources first unless user specifically requested another working provider
-      if (sources.length > 1) {
-        const requestedSucceeded =
-          requestedProvider && sources.some((s) => s.providerKey === requestedProvider);
-        if (!requestedSucceeded) {
-          sources.sort((a, b) => {
-            const scoreSource = (s: ResolvedEpisodeSource) => {
-              if (s.directPlayable) return 0;
-              if (lang === 'dub' && s.providerKey === 'aniembed') return 1;
-              return s.role === 'primary' ? 2 : 3;
-            };
-            return scoreSource(a) - scoreSource(b);
-          });
-        }
+      // When DUB is requested and Yenime is embed-only (player.yenime.net does not switch URL language to dub),
+      // prefer direct-playable HLS/MP4 or AniEmbed (?lang=dub) first so English audio actually plays.
+      if (lang === 'dub' && !requestedProvider && sources.length > 1) {
+        sources.sort((a, b) => {
+          const scoreSource = (s: ResolvedEpisodeSource) => {
+            if (s.directPlayable) return 0;
+            if (s.providerKey === 'aniembed') return 1;
+            return 2;
+          };
+          return scoreSource(a) - scoreSource(b);
+        });
       }
 
       const preferredSource = sources[0] || null;
@@ -1558,10 +1172,12 @@ export async function resolveEpisodeSources(
       const suggestedAction = !preferredSource
         ? lang === 'dub'
           ? 'Switch audio to SUB, verify network/adblockers, or check the episode status in Details.'
-          : 'This episode or title returned 404 from current providers. Try another episode or retry later.'
+          : 'Click Retry Playback or test provider connectivity in the Admin Dashboard.'
         : errors.length > 0
           ? `Automatically failed over to ${preferredSource.providerName}.`
-          : 'Playback source verified.';
+          : lang === 'dub' && preferredSource.providerKey === 'yenime' && !preferredSource.directPlayable
+            ? 'Yenime embed defaults to SUB. Switch to AniEmbed for verified English DUB audio.'
+            : 'Playback source verified.';
 
       const diagnostics: DiagnosticReport = {
         animeTitle,

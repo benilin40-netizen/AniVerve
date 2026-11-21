@@ -1,4 +1,5 @@
-import { Router, type Request, type Response } from 'express';
+import crypto from 'node:crypto';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import {
   changeUserPassword,
   getSessionIdFromToken,
@@ -15,27 +16,42 @@ import {
   type StoredUserRecord,
 } from '../services/authService.ts';
 import { dbGet, dbList, dbSet, ensureDefaultSeedData, logSecurityEvent } from '../services/db.ts';
-import {
-  clearUserSessionCookies,
-  issueUserCsrfCookie,
-  requireAuth,
-  requireUserCsrf,
-  type AuthenticatedRequest,
-} from '../middleware/authMiddleware.ts';
-import { rateLimiters } from '../middleware/rateLimit.ts';
-import {
-  authLoginSchema,
-  authProfilePatchSchema,
-  authRegisterSchema,
-  changePasswordSchema,
-  forgotPasswordSchema,
-  resetPasswordSchema,
-  validateBody,
-  verifyEmailSchema,
-} from '../validation/schemas.ts';
+import { requireAuth, type AuthenticatedRequest } from '../middleware/authMiddleware.ts';
 import type { SystemSettings } from '../../src/types/anime.ts';
 
 const router = Router();
+
+// Sliding-window in-memory rate limiter for authentication endpoints
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function createRateLimiter(bucketName: string, maxAttempts: number, windowMs: number) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    const key = `${bucketName}:${ip}`;
+    const now = Date.now();
+    const entry = rateBuckets.get(key);
+
+    if (entry && now < entry.resetAt) {
+      if (entry.count >= maxAttempts) {
+        const retrySec = Math.max(1, Math.ceil((entry.resetAt - now) / 1000));
+        res.setHeader('Retry-After', String(retrySec));
+        return res.status(429).json({
+          error: `Too many requests. Please wait ${retrySec} seconds before trying again.`,
+        });
+      }
+      entry.count += 1;
+    } else {
+      rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    }
+
+    if (rateBuckets.size > 2000) {
+      for (const [k, v] of rateBuckets.entries()) {
+        if (now >= v.resetAt) rateBuckets.delete(k);
+      }
+    }
+    next();
+  };
+}
 
 function setSessionCookie(res: Response, token: string) {
   const isProd =
@@ -47,7 +63,6 @@ function setSessionCookie(res: Response, token: string) {
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: '/',
   });
-  issueUserCsrfCookie(res);
 }
 
 function getClientMeta(req: Request) {
@@ -57,88 +72,83 @@ function getClientMeta(req: Request) {
   };
 }
 
-router.post(
-  '/register',
-  rateLimiters.auth,
-  validateBody(authRegisterSchema),
-  async (req, res) => {
-    const meta = getClientMeta(req);
-    try {
-      await ensureDefaultSeedData();
-      const settings = await dbGet<SystemSettings>('system_settings', 'global');
-      if (settings && settings.allowRegistration === false) {
-        return res
-          .status(403)
-          .json({ error: 'New user registrations are currently disabled by an administrator.' });
-      }
-
-      const { email, username, password } = req.body;
-      const result = await registerEmailUser({
-        email,
-        username,
-        password,
-        ...meta,
-      });
-      setSessionCookie(res, result.token);
-      await logSecurityEvent({
-        userId: result.user.id,
-        email: result.user.email,
-        event: 'USER_REGISTER',
-        success: true,
-        ipAddress: meta.ipAddress,
-      });
-
-      res.status(201).json({
-        user: result.user,
-        token: result.token,
-        verificationPending: true,
-        verificationToken: process.env.SMTP_HOST ? undefined : result.verificationToken,
-      });
-    } catch (err) {
-      await logSecurityEvent({
-        email: typeof req.body?.email === 'string' ? req.body.email : null,
-        event: 'USER_REGISTER_FAILED',
-        success: false,
-        ipAddress: meta.ipAddress,
-        details: err instanceof Error ? err.message : 'Registration error',
-      });
-      res.status(400).json({ error: err instanceof Error ? err.message : 'Registration failed.' });
+router.post('/register', createRateLimiter('register', 10, 15 * 60 * 1000), async (req, res) => {
+  const meta = getClientMeta(req);
+  try {
+    await ensureDefaultSeedData();
+    const settings = await dbGet<SystemSettings>('system_settings', 'global');
+    if (settings && settings.allowRegistration === false) {
+      return res
+        .status(403)
+        .json({ error: 'New user registrations are currently disabled by an administrator.' });
     }
-  }
-);
 
-router.post(
-  '/login',
-  rateLimiters.auth,
-  validateBody(authLoginSchema),
-  async (req, res) => {
-    const meta = getClientMeta(req);
-    try {
-      const { email, password } = req.body;
-      const result = await loginEmailUser({ email, password, ...meta });
-      setSessionCookie(res, result.token);
-      await logSecurityEvent({
-        userId: result.user.id,
-        email: result.user.email,
-        event: 'LOGIN_SUCCESS',
-        success: true,
-        ipAddress: meta.ipAddress,
-      });
-      res.json(result);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Login failed.';
-      await logSecurityEvent({
-        email: typeof req.body?.email === 'string' ? req.body.email : null,
-        event: 'LOGIN_FAILED',
-        success: false,
-        ipAddress: meta.ipAddress,
-        details: message,
-      });
-      const status = message.toLowerCase().includes('too many') || message.toLowerCase().includes('locked') ? 429 : 401;
-      res.status(status).json({ error: message });
+    const { email, username, password } = req.body || {};
+    if (!email || !username || !password) {
+      return res.status(400).json({ error: 'Email, username, and password are required.' });
     }
+
+    const result = await registerEmailUser({
+      email,
+      username,
+      password,
+      ...meta,
+    });
+    setSessionCookie(res, result.token);
+    await logSecurityEvent({
+      userId: result.user.id,
+      email: result.user.email,
+      event: 'USER_REGISTER',
+      success: true,
+      ipAddress: meta.ipAddress,
+    });
+
+    res.status(201).json({
+      user: result.user,
+      token: result.token,
+      verificationPending: true,
+      verificationToken: process.env.SMTP_HOST ? undefined : result.verificationToken,
+    });
+  } catch (err) {
+    await logSecurityEvent({
+      email: typeof req.body?.email === 'string' ? req.body.email : null,
+      event: 'USER_REGISTER_FAILED',
+      success: false,
+      ipAddress: meta.ipAddress,
+      details: err instanceof Error ? err.message : 'Registration error',
+    });
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Registration failed.' });
   }
-);
+});
+
+router.post('/login', createRateLimiter('login', 15, 10 * 60 * 1000), async (req, res) => {
+  const meta = getClientMeta(req);
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required.' });
+    }
+    const result = await loginEmailUser({ email, password, ...meta });
+    setSessionCookie(res, result.token);
+    await logSecurityEvent({
+      userId: result.user.id,
+      email: result.user.email,
+      event: 'LOGIN_SUCCESS',
+      success: true,
+      ipAddress: meta.ipAddress,
+    });
+    res.json(result);
+  } catch (err) {
+    await logSecurityEvent({
+      email: typeof req.body?.email === 'string' ? req.body.email : null,
+      event: 'LOGIN_FAILED',
+      success: false,
+      ipAddress: meta.ipAddress,
+      details: err instanceof Error ? err.message : 'Login failed',
+    });
+    res.status(401).json({ error: err instanceof Error ? err.message : 'Login failed.' });
+  }
+});
 
 router.post('/admin-login', (_req, res) => {
   res.status(410).json({ error: 'Use /api/admin/login for administrator authentication.' });
@@ -148,18 +158,16 @@ router.post('/firebase', (_req, res) => {
   res.status(410).json({ error: 'Firebase token exchange has been disabled.' });
 });
 
-router.post('/logout', requireUserCsrf, async (req: AuthenticatedRequest, res) => {
+router.post('/logout', async (req: AuthenticatedRequest, res) => {
   const token = req.authToken || req.cookies?.aniverve_session;
   if (token) {
     await revokeSession(token);
   }
-  clearUserSessionCookies(res);
+  res.clearCookie('aniverve_session', { path: '/' });
   res.json({ ok: true });
 });
 
 router.get('/me', requireAuth, async (req: AuthenticatedRequest, res) => {
-  const existingCsrf = (req as any).cookies?.aniverve_user_csrf;
-  issueUserCsrfCookie(res, typeof existingCsrf === 'string' ? existingCsrf : undefined);
   const allUsers = await dbList<StoredUserRecord>('users');
   const hasAdmin = allUsers.some((u) => u.role === 'ADMIN' || u.role === 'SUPER_ADMIN');
   res.json({ user: sanitizeUser(req.authUser!), hasAdmin });
@@ -171,7 +179,7 @@ router.get('/sessions', requireAuth, async (req: AuthenticatedRequest, res) => {
   res.json({ sessions });
 });
 
-router.delete('/sessions/:sessionId', requireAuth, requireUserCsrf, async (req: AuthenticatedRequest, res) => {
+router.delete('/sessions/:sessionId', requireAuth, async (req: AuthenticatedRequest, res) => {
   const currentSid = getSessionIdFromToken(req.authToken);
   const targetSid = req.params.sessionId;
 
@@ -201,7 +209,7 @@ router.delete('/sessions/:sessionId', requireAuth, requireUserCsrf, async (req: 
     details: targetSid,
   });
   if (currentSid && targetSid === currentSid) {
-    clearUserSessionCookies(res);
+    res.clearCookie('aniverve_session', { path: '/' });
   }
   res.json({ ok: true, currentRevoked: Boolean(currentSid && targetSid === currentSid) });
 });
@@ -209,12 +217,13 @@ router.delete('/sessions/:sessionId', requireAuth, requireUserCsrf, async (req: 
 router.post(
   '/change-password',
   requireAuth,
-  requireUserCsrf,
-  rateLimiters.auth,
-  validateBody(changePasswordSchema),
+  createRateLimiter('change-password', 8, 15 * 60 * 1000),
   async (req: AuthenticatedRequest, res) => {
     try {
-      const { currentPassword, newPassword } = req.body;
+      const { currentPassword, newPassword } = req.body || {};
+      if (!newPassword || typeof newPassword !== 'string') {
+        return res.status(400).json({ error: 'New password is required.' });
+      }
       const currentSid = getSessionIdFromToken(req.authToken);
       const revokedOthers = await changeUserPassword(
         req.authUser!.id,
@@ -239,58 +248,57 @@ router.post(
   }
 );
 
-router.patch(
-  '/profile',
-  requireAuth,
-  requireUserCsrf,
-  validateBody(authProfilePatchSchema),
-  async (req: AuthenticatedRequest, res) => {
-    try {
-      const user = req.authUser!;
-      const { username, avatarUrl, bio } = req.body;
-      const updates: Partial<StoredUserRecord> = {
-        updatedAt: new Date().toISOString(),
-      };
+router.patch('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.authUser!;
+    const { username, avatarUrl, bio } = req.body || {};
+    const updates: Partial<StoredUserRecord> = {
+      updatedAt: new Date().toISOString(),
+    };
 
-      if (typeof username === 'string') {
-        const trimmed = username.trim();
-        const existing = await dbList<StoredUserRecord>(
-          'users',
-          (u) => u.username.toLowerCase() === trimmed.toLowerCase() && u.id !== user.id
-        );
-        if (existing.length > 0) {
-          return res.status(400).json({ error: 'Username is already taken.' });
-        }
-        updates.username = trimmed;
+    if (typeof username === 'string') {
+      const trimmed = username.trim();
+      if (trimmed.length < 2 || trimmed.length > 32) {
+        return res.status(400).json({ error: 'Username must be between 2 and 32 characters.' });
       }
-
-      if (typeof avatarUrl === 'string') {
-        const clean = avatarUrl.trim();
-        if (clean && !clean.startsWith('https://') && !clean.startsWith('/')) {
-          return res.status(400).json({ error: 'Avatar URL must use HTTPS.' });
-        }
-        updates.avatarUrl = clean || null;
+      const existing = await dbList<StoredUserRecord>(
+        'users',
+        (u) => u.username.toLowerCase() === trimmed.toLowerCase() && u.id !== user.id
+      );
+      if (existing.length > 0) {
+        return res.status(400).json({ error: 'Username is already taken.' });
       }
-
-      if (typeof bio === 'string') {
-        updates.bio = bio.trim().slice(0, 500);
-      }
-
-      const updated = await dbSet('users', user.id, { ...user, ...updates });
-      res.json({ user: sanitizeUser(updated) });
-    } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to update profile.' });
+      updates.username = trimmed;
     }
+
+    if (typeof avatarUrl === 'string') {
+      const clean = avatarUrl.trim();
+      if (clean && !clean.startsWith('https://') && !clean.startsWith('/')) {
+        return res.status(400).json({ error: 'Avatar URL must use HTTPS.' });
+      }
+      updates.avatarUrl = clean || null;
+    }
+
+    if (typeof bio === 'string') {
+      updates.bio = bio.trim().slice(0, 500);
+    }
+
+    const updated = await dbSet('users', user.id, { ...user, ...updates });
+    res.json({ user: sanitizeUser(updated) });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to update profile.' });
   }
-);
+});
 
 router.post(
   '/verify-email',
-  rateLimiters.auth,
-  validateBody(verifyEmailSchema),
+  createRateLimiter('verify-email', 15, 15 * 60 * 1000),
   async (req, res) => {
     try {
-      const { token } = req.body;
+      const { token } = req.body || {};
+      if (!token || typeof token !== 'string') {
+        return res.status(400).json({ error: 'Verification token is required.' });
+      }
       const user = await verifyEmailByToken(token);
       await logSecurityEvent({
         userId: user.id,
@@ -310,11 +318,13 @@ router.post(
 
 router.post(
   '/forgot-password',
-  rateLimiters.auth,
-  validateBody(forgotPasswordSchema),
+  createRateLimiter('forgot-password', 8, 15 * 60 * 1000),
   async (req, res) => {
     try {
-      const { email } = req.body;
+      const { email } = req.body || {};
+      if (!email || typeof email !== 'string') {
+        return res.status(400).json({ error: 'Email is required.' });
+      }
       const { resetToken } = await requestPasswordReset(email);
       await logSecurityEvent({
         email: email.trim().toLowerCase(),
@@ -337,11 +347,13 @@ router.post(
 
 router.post(
   '/reset-password',
-  rateLimiters.auth,
-  validateBody(resetPasswordSchema),
+  createRateLimiter('reset-password', 10, 15 * 60 * 1000),
   async (req, res) => {
     try {
-      const { token, newPassword } = req.body;
+      const { token, newPassword } = req.body || {};
+      if (!token || !newPassword) {
+        return res.status(400).json({ error: 'Token and new password are required.' });
+      }
       const email = await resetPasswordWithToken(token, newPassword);
       await logSecurityEvent({
         email,

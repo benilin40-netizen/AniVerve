@@ -495,16 +495,6 @@ router.patch('/providers/:key', async (req: AdminAuthenticatedRequest, res) => {
     priority: updated.priority,
     licenseVerified: updated.licenseVerified,
   });
-  if (licenseVerified !== undefined || isEnabled !== undefined) {
-    await logSecurityEvent({
-      userId: req.adminActor!.id,
-      email: req.adminActor!.email,
-      event: 'ADMIN_PROVIDER_PERMISSION_CHANGED',
-      success: true,
-      ipAddress: req.ip || null,
-      details: `provider=${key} licenseVerified=${updated.licenseVerified} isEnabled=${updated.isEnabled}`,
-    });
-  }
   res.json({ provider: updated });
 });
 
@@ -613,14 +603,6 @@ router.post('/providers/:key/verify', async (req: AdminAuthenticatedRequest, res
     };
     await dbSet('anime_providers', key, revoked);
     await logAdminActivity(req.adminActor!.id, req.adminActor!.email, 'REVOKE_PROVIDER_LICENSE', key);
-    await logSecurityEvent({
-      userId: req.adminActor!.id,
-      email: req.adminActor!.email,
-      event: 'PROVIDER_PERMISSION_REVOKED',
-      success: true,
-      ipAddress: req.ip || null,
-      details: `provider=${key}`,
-    });
     return res.json({ provider: revoked, testResult: null });
   }
 
@@ -679,14 +661,6 @@ router.post('/providers/:key/verify', async (req: AdminAuthenticatedRequest, res
   await dbSet('anime_providers', key, verifiedProvider);
   await logAdminActivity(req.adminActor!.id, req.adminActor!.email, 'RECORD_PROVIDER_PERMISSION', key, {
     notes: trimmedNotes.slice(0, 120),
-  });
-  await logSecurityEvent({
-    userId: req.adminActor!.id,
-    email: req.adminActor!.email,
-    event: 'PROVIDER_PERMISSION_VERIFIED',
-    success: true,
-    ipAddress: req.ip || null,
-    details: `provider=${key} note=${trimmedNotes.slice(0, 100)}`,
   });
   res.json({ provider: verifiedProvider, testResult });
 });

@@ -27,22 +27,5 @@
       "type": "image/png",
       "purpose": "maskable"
     }
-  ],
-  "shortcuts": [
-    {
-      "name": "Browse Anime",
-      "short_name": "Browse",
-      "url": "/explore"
-    },
-    {
-      "name": "Airing Schedule",
-      "short_name": "Schedule",
-      "url": "/schedule"
-    },
-    {
-      "name": "My Watchlist",
-      "short_name": "Watchlist",
-      "url": "/watchlist"
-    }
   ]
 }

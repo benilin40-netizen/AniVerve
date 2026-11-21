@@ -182,46 +182,4 @@ export const universeService = {
       personalizedRecommendations: AnimeSummary[];
     }>('/api/user/universe-summary');
   },
-
-  async getBecauseYouWatched(seedAnilistId?: number, signal?: AbortSignal) {
-    const qs = seedAnilistId ? `?anilistId=${seedAnilistId}` : '';
-    return apiFetch<{
-      seedAnimeId: number | null;
-      seedTitle: string | null;
-      recommendations: AnimeSummary[];
-    }>(`/api/anime/because-you-watched${qs}`, { signal });
-  },
-
-  async aiNlSearch(query: string, signal?: AbortSignal) {
-    return apiFetch<{
-      filters: {
-        search?: string;
-        genre?: string;
-        format?: string;
-        sort?: string;
-        explanation: string;
-      };
-      results: AnimeSummary[];
-      aiEnhanced: boolean;
-      cached: boolean;
-    }>('/api/ai/nl-search', {
-      method: 'POST',
-      body: JSON.stringify({ query }),
-      signal,
-    });
-  },
-
-  async aiMoodPick(mood: string, excludeGenres: string[] = [], signal?: AbortSignal) {
-    return apiFetch<{
-      picks: AnimeSummary[];
-      rationale: string;
-      aiEnhanced: boolean;
-      cached: boolean;
-    }>('/api/ai/mood-pick', {
-      method: 'POST',
-      body: JSON.stringify({ mood, excludeGenres }),
-      signal,
-    });
-  },
 };
-

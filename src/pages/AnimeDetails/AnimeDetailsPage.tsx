@@ -1,14 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  Ban,
   Bookmark,
   Check,
   ExternalLink,
   Heart,
   Play,
   Share2,
-  Sparkles,
   Star,
 } from 'lucide-react';
 import type {
@@ -20,7 +18,6 @@ import type {
   WatchStatus,
 } from '../../types/anime.ts';
 import { FALLBACK_BANNER_IMAGE, WATCH_STATUS_LABELS } from '../../config/constants.ts';
-import { apiFetch } from '../../services/apiClient.ts';
 import { anilistService } from '../../services/anilistService.ts';
 import { getPrimaryTitle, parseAnimeIdFromSlug } from '../../utils/slug.ts';
 import {
@@ -56,12 +53,6 @@ export function AnimeDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
-  const [aiBrief, setAiBrief] = useState<{
-    summary: string;
-    themes: string[];
-    aiEnhanced: boolean;
-  } | null>(null);
-  const [loadingAiBrief, setLoadingAiBrief] = useState(false);
 
   const {
     getWatchlistEntry,
@@ -141,26 +132,16 @@ export function AnimeDetailsPage() {
 
   const jsonLd = useMemo(() => {
     if (!anime) return null;
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    return [
-      {
-        '@type': anime.format === 'MOVIE' ? 'Movie' : 'TVSeries',
-        name: title,
-        alternateName: anime.title.romaji,
-        description: cleanDesc.slice(0, 300),
-        image: anime.coverImage?.extraLarge || anime.coverImage?.large,
-        genre: anime.genres,
-        numberOfEpisodes: anime.episodes || undefined,
-      },
-      {
-        '@type': 'BreadcrumbList',
-        itemListElement: [
-          { '@type': 'ListItem', position: 1, name: 'Home', item: `${origin}/` },
-          { '@type': 'ListItem', position: 2, name: 'Explore', item: `${origin}/explore` },
-          { '@type': 'ListItem', position: 3, name: title, item: `${origin}/anime/${anime.slug}` },
-        ],
-      },
-    ];
+    return {
+      '@context': 'https://schema.org',
+      '@type': anime.format === 'MOVIE' ? 'Movie' : 'TVSeries',
+      name: title,
+      alternateName: anime.title.romaji,
+      description: cleanDesc.slice(0, 300),
+      image: anime.coverImage?.extraLarge || anime.coverImage?.large,
+      genre: anime.genres,
+      numberOfEpisodes: anime.episodes || undefined,
+    };
   }, [anime, title, cleanDesc]);
 
   useDocumentMeta({
@@ -218,21 +199,6 @@ export function AnimeDetailsPage() {
   const resumeEp =
     watchHistory.find((h) => h.anilistId === anime.id)?.episodeNumber ||
     (watchlistEntry?.episodesWatched ? Math.max(1, watchlistEntry.episodesWatched) : 1);
-
-  const playableEpisodes = (episodeDiscovery?.episodes || []).filter(
-    (e) => e.playable !== false && e.providers.length > 0
-  );
-  const defaultWatchEp =
-    playableEpisodes.length > 0
-      ? playableEpisodes.some((e) => e.episodeNumber === resumeEp)
-        ? resumeEp
-        : playableEpisodes[0].episodeNumber
-      : resumeEp;
-  const streamsConfirmedUnavailable =
-    anime.status === 'NOT_YET_RELEASED' ||
-    (!loadingEpisodes &&
-      episodeDiscovery?.discoveryStatus === 'unavailable' &&
-      playableEpisodes.length === 0);
 
   const totalEps =
     anime.episodes ||
@@ -311,35 +277,13 @@ export function AnimeDetailsPage() {
               />
             </div>
 
-            {streamsConfirmedUnavailable ? (
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  disabled
-                  title={
-                    episodeDiscovery?.notice ||
-                    'No playable episodes are currently available on active streaming providers.'
-                  }
-                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-100 dark:bg-[#171722] px-4 py-3 text-sm font-semibold text-zinc-500 dark:text-[#A5A1B5] cursor-not-allowed opacity-75"
-                >
-                  <Ban className="h-4 w-4 shrink-0" />
-                  {anime.status === 'NOT_YET_RELEASED' ? 'Not Yet Aired' : 'Streams Unavailable'}
-                </button>
-                <p className="text-[11px] leading-snug text-center text-zinc-500 dark:text-[#A5A1B5]">
-                  {anime.status === 'NOT_YET_RELEASED'
-                    ? 'Awaiting broadcast premiere.'
-                    : 'Not yet indexed on active providers.'}
-                </p>
-              </div>
-            ) : (
-              <Link
-                to={`/watch/${anime.slug}/${defaultWatchEp}`}
-                className="av-btn-press flex w-full items-center justify-center gap-2 rounded-lg bg-[#7C5CFF] hover:bg-[#9B87FF] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-[#7C5CFF]/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
-              >
-                <Play className="h-4 w-4 fill-current" />
-                {defaultWatchEp > 1 ? `Watch Ep ${defaultWatchEp}` : 'Start Watching'}
-              </Link>
-            )}
+            <Link
+              to={`/watch/${anime.slug}/${resumeEp}`}
+              className="av-btn-press flex w-full items-center justify-center gap-2 rounded-lg bg-[#7C5CFF] hover:bg-[#9B87FF] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-[#7C5CFF]/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
+            >
+              <Play className="h-4 w-4 fill-current" />
+              {resumeEp > 1 ? `Resume Ep ${resumeEp}` : 'Start Watching'}
+            </Link>
           </div>
 
           {/* Info Column */}
@@ -605,51 +549,6 @@ export function AnimeDetailsPage() {
               </p>
             )}
 
-            <div className="pt-1">
-              {aiBrief ? (
-                <div className="rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#171722] p-4 max-w-4xl space-y-2">
-                  <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="inline-flex items-center gap-1.5 font-semibold text-[#7C5CFF] dark:text-[#9B87FF]">
-                      <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-                      Spoiler-Free Series Brief
-                    </span>
-                    {aiBrief.themes.length > 0 && (
-                      <span className="text-[11px] text-zinc-500 dark:text-[#A5A1B5]">
-                        {aiBrief.themes.slice(0, 4).join(' · ')}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs sm:text-sm leading-relaxed text-zinc-700 dark:text-[#F5F3FF]/85">
-                    {aiBrief.summary}
-                  </p>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  disabled={loadingAiBrief}
-                  onClick={async () => {
-                    setLoadingAiBrief(true);
-                    try {
-                      const data = await apiFetch<{
-                        summary: string;
-                        themes: string[];
-                        aiEnhanced: boolean;
-                      }>(`/api/ai/summary/${anime.id}`);
-                      setAiBrief(data);
-                    } catch {
-                      showToast('Spoiler-free summary unavailable right now.', 'info');
-                    } finally {
-                      setLoadingAiBrief(false);
-                    }
-                  }}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#171722] px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-[#F5F3FF] hover:border-[#9B87FF] transition-colors disabled:opacity-50"
-                >
-                  <Sparkles className="h-3.5 w-3.5 text-[#9B87FF]" aria-hidden="true" />
-                  {loadingAiBrief ? 'Generating Brief...' : 'Generate Spoiler-Free Brief'}
-                </button>
-              )}
-            </div>
-
             <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-500 dark:text-[#A5A1B5] pt-1 tabular-nums">
               <span className="font-mono text-[11px] text-zinc-600 dark:text-[#A5A1B5]">
                 AniList #{anime.id}
@@ -683,11 +582,9 @@ export function AnimeDetailsPage() {
         <section className="space-y-4">
           <SectionHeader title="Episodes" />
           <EpisodeSelector
-            totalEpisodes={
-              episodeDiscovery?.episodes !== undefined ? episodeDiscovery.episodes.length : totalEps
-            }
+            totalEpisodes={episodeDiscovery?.episodes?.length || totalEps}
             catalogEpisodes={anime.episodes}
-            currentEpisode={defaultWatchEp}
+            currentEpisode={resumeEp}
             discoveredEpisodes={episodeDiscovery?.episodes}
             loading={loadingEpisodes}
             discoveryStatus={episodeDiscovery?.discoveryStatus}
@@ -706,8 +603,6 @@ export function AnimeDetailsPage() {
               <iframe
                 src={trailerEmbed}
                 title={`${title} Trailer`}
-                loading="lazy"
-                sandbox="allow-scripts allow-same-origin allow-presentation"
                 className="h-full w-full border-0"
                 allow="encrypted-media; picture-in-picture; fullscreen"
                 allowFullScreen

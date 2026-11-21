@@ -260,49 +260,6 @@ export async function registerEmailUser(input: {
   return { user: sanitizeUser(record), token: session.token, verificationToken };
 }
 
-const loginFailureBuckets = new Map<string, { failures: number; lockedUntil: number; updatedAt: number }>();
-
-function checkUserLoginLockout(email: string, ip?: string | null): number {
-  const now = Date.now();
-  for (const key of [`email:${email}`, `ip:${ip || 'unknown'}`]) {
-    const b = loginFailureBuckets.get(key);
-    if (b && b.lockedUntil > now) {
-      return Math.max(1, Math.ceil((b.lockedUntil - now) / 1000));
-    }
-    if (b && now - b.updatedAt > 20 * 60 * 1000) {
-      loginFailureBuckets.delete(key);
-    }
-  }
-  return 0;
-}
-
-function recordUserLoginFailure(email: string, ip?: string | null): number {
-  const now = Date.now();
-  let maxLockSec = 0;
-  for (const key of [`email:${email}`, `ip:${ip || 'unknown'}`]) {
-    const prev = loginFailureBuckets.get(key) || { failures: 0, lockedUntil: 0, updatedAt: now };
-    const failures = prev.failures + 1;
-    let lockMs = 0;
-    if (failures >= 10) {
-      lockMs = 15 * 60 * 1000;
-    } else if (failures >= 6) {
-      lockMs = Math.min(5 * 60 * 1000, (failures - 5) * 30 * 1000);
-    }
-    loginFailureBuckets.set(key, {
-      failures,
-      lockedUntil: lockMs > 0 ? now + lockMs : 0,
-      updatedAt: now,
-    });
-    maxLockSec = Math.max(maxLockSec, Math.ceil(lockMs / 1000));
-  }
-  return maxLockSec;
-}
-
-function clearUserLoginFailures(email: string, ip?: string | null) {
-  loginFailureBuckets.delete(`email:${email}`);
-  loginFailureBuckets.delete(`ip:${ip || 'unknown'}`);
-}
-
 export async function loginEmailUser(input: {
   email: string;
   password: string;
@@ -310,17 +267,8 @@ export async function loginEmailUser(input: {
   ipAddress?: string | null;
 }): Promise<{ user: UserProfile; token: string }> {
   const email = input.email.trim().toLowerCase();
-  const lockedSec = checkUserLoginLockout(email, input.ipAddress);
-  if (lockedSec > 0) {
-    throw new Error(`Too many failed sign-in attempts. Please wait ${lockedSec} seconds and try again.`);
-  }
-
   const user = await findUserByEmail(email);
   if (!user || !user.passwordHash) {
-    const lockSec = recordUserLoginFailure(email, input.ipAddress);
-    if (lockSec > 0) {
-      throw new Error(`Too many failed sign-in attempts. Account temporarily locked for ${lockSec} seconds.`);
-    }
     throw new Error('Invalid email or password.');
   }
   if (user.status === 'SUSPENDED') {
@@ -328,13 +276,8 @@ export async function loginEmailUser(input: {
   }
   const valid = await bcrypt.compare(input.password, user.passwordHash);
   if (!valid) {
-    const lockSec = recordUserLoginFailure(email, input.ipAddress);
-    if (lockSec > 0) {
-      throw new Error(`Too many failed sign-in attempts. Account temporarily locked for ${lockSec} seconds.`);
-    }
     throw new Error('Invalid email or password.');
   }
-  clearUserLoginFailures(email, input.ipAddress);
   const session = await createSession(user.id, {
     userAgent: input.userAgent,
     ipAddress: input.ipAddress,

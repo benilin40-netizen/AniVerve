@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type HlsInstance from 'hls.js';
+import Hls from 'hls.js';
 import {
   AlertTriangle,
   Check,
@@ -9,7 +9,6 @@ import {
   Copy,
   ExternalLink,
   FileText,
-  Keyboard,
   Loader2,
   Maximize2,
   Pause,
@@ -17,12 +16,10 @@ import {
   Radio,
   RotateCcw,
   Server,
-  SkipForward,
   SlidersHorizontal,
   Subtitles,
   Volume2,
   VolumeX,
-  X,
 } from 'lucide-react';
 import type { DiagnosticReport, ResolvedEpisodeSource } from '../../types/anime.ts';
 import type { PlaybackProvider, PlaybackTrack } from '../../providers/types.ts';
@@ -81,39 +78,6 @@ interface PlayerProps {
 
 const VOLUME_STORAGE_KEY = 'aniverve-player-volume';
 const SUBTITLE_STORAGE_KEY = 'aniverve-subtitle-lang';
-const CAPTION_STYLE_KEY = 'aniverve-caption-style';
-
-interface CaptionStylePrefs {
-  fontSize: 'small' | 'medium' | 'large';
-  bgOpacity: 'none' | 'half' | 'solid';
-  color: '#FFFFFF' | '#FDE047' | '#C4B5FD';
-}
-
-function getInitialCaptionStyle(): CaptionStylePrefs {
-  try {
-    const raw = localStorage.getItem(CAPTION_STYLE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<CaptionStylePrefs>;
-      return {
-        fontSize:
-          parsed.fontSize === 'small' || parsed.fontSize === 'large'
-            ? parsed.fontSize
-            : 'medium',
-        bgOpacity:
-          parsed.bgOpacity === 'none' || parsed.bgOpacity === 'solid'
-            ? parsed.bgOpacity
-            : 'half',
-        color:
-          parsed.color === '#FDE047' || parsed.color === '#C4B5FD'
-            ? parsed.color
-            : '#FFFFFF',
-      };
-    }
-  } catch {
-    // Ignore storage issues
-  }
-  return { fontSize: 'medium', bgOpacity: 'half', color: '#FFFFFF' };
-}
 
 function getOriginBase(): string {
   return typeof window !== 'undefined' ? window.location.origin : 'https://localhost';
@@ -207,7 +171,7 @@ export function Player({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const hlsRef = useRef<HlsInstance | null>(null);
+  const hlsRef = useRef<Hls | null>(null);
 
   const [frameLoaded, setFrameLoaded] = useState(false);
   const [playbackConfirmed, setPlaybackConfirmed] = useState(false);
@@ -226,12 +190,8 @@ export function Player({
   >([]);
   const [activeQualityIndex, setActiveQualityIndex] = useState<number>(-1);
   const [selectedSubtitle, setSelectedSubtitle] = useState<string>(getStoredSubtitlePref);
-  const [captionStyle, setCaptionStyle] = useState<CaptionStylePrefs>(getInitialCaptionStyle);
-  const [captionMenuOpen, setCaptionMenuOpen] = useState(false);
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [internalRefreshNonce, setInternalRefreshNonce] = useState(0);
   const [nativeFallbackToEmbed, setNativeFallbackToEmbed] = useState(false);
-  const [currentTimeSec, setCurrentTimeSec] = useState(0);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [copiedDiagnostics, setCopiedDiagnostics] = useState(false);
 
@@ -330,7 +290,6 @@ export function Player({
     setAudioDiagnosticNote(null);
     setQualityOptions([]);
     setActiveQualityIndex(-1);
-    setCurrentTimeSec(0);
     frameLoadedRef.current = false;
     failureTriggeredRef.current = false;
     tokenRefreshTriedRef.current = false;
@@ -382,7 +341,7 @@ export function Player({
     if (!video) return;
 
     let cancelled = false;
-    let hls: HlsInstance | null = null;
+    let hls: Hls | null = null;
     let audioVerifyTriggered = false;
     let manifestReportedNoAudio = false;
 
@@ -502,9 +461,7 @@ export function Player({
 
     const onTimeUpdate = () => {
       if (cancelled) return;
-      const flooredSec = Math.floor(video.currentTime);
-      setCurrentTimeSec((prev) => (prev === flooredSec ? prev : flooredSec));
-      onPositionUpdateRef.current(flooredSec);
+      onPositionUpdateRef.current(Math.floor(video.currentTime));
 
       // Verify genuine audio decoding once stream has progressed >= 2s
       if (!audioVerifyTriggered && video.currentTime >= 2) {
@@ -538,157 +495,149 @@ export function Player({
     const isM3u8 =
       directMediaUrl.toLowerCase().includes('.m3u8') || source?.format === 'hls';
 
-    const initializeMediaStream = async () => {
-      if (isM3u8) {
-        const { default: HlsLib } = await import('hls.js');
+    if (isM3u8 && Hls.isSupported()) {
+      hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: false,
+        startPosition: startSeconds > 0 ? startSeconds : -1,
+      });
+      hlsRef.current = hls;
+
+      hls.on(Hls.Events.MANIFEST_LOADED, (_evt, data: any) => {
         if (cancelled) return;
-        if (HlsLib.isSupported()) {
-          hls = new HlsLib({
-            enableWorker: true,
-            lowLatencyMode: false,
-            startPosition: startSeconds > 0 ? startSeconds : -1,
-          });
-          hlsRef.current = hls;
+        const rawManifest = typeof data?.networkDetails?.responseText === 'string'
+          ? data.networkDetails.responseText
+          : null;
+        if (rawManifest) {
+          const inspection = inspectHlsManifest(rawManifest, directMediaUrl);
+          if (inspection.hasAudio === 'no') {
+            manifestReportedNoAudio = true;
+            setAudioDiagnosticNote(inspection.reason || 'Video-only HLS stream');
+            handleNativeStreamFailure(
+              inspection.reason || `${provider?.name || 'HLS stream'} contains video only with no audio track.`
+            );
+          } else if (inspection.hasSeparateAudioPlaylist) {
+            setAudioDiagnosticNote('Synced separate HLS audio rendition');
+          }
+        }
+      });
 
-          hls.on(HlsLib.Events.MANIFEST_LOADED, (_evt, data: any) => {
-            if (cancelled) return;
-            const rawManifest = typeof data?.networkDetails?.responseText === 'string'
-              ? data.networkDetails.responseText
-              : null;
-            if (rawManifest) {
-              const inspection = inspectHlsManifest(rawManifest, directMediaUrl);
-              if (inspection.hasAudio === 'no') {
-                manifestReportedNoAudio = true;
-                setAudioDiagnosticNote(inspection.reason || 'Video-only HLS stream');
+      hls.on(Hls.Events.MANIFEST_PARSED, (_evt, data: any) => {
+        if (cancelled) return;
+        const tracks = Array.isArray(data?.audioTracks) ? data.audioTracks : hls?.audioTracks || [];
+        syncAudioTrackList(tracks);
+
+        const rawLevels = Array.isArray(data?.levels) ? data.levels : hls?.levels || [];
+        const parsedLevels = rawLevels.map((lvl: any, idx: number) => ({
+          index: idx,
+          height: typeof lvl?.height === 'number' ? lvl.height : undefined,
+          label: lvl?.height
+            ? `${lvl.height}p`
+            : lvl?.bitrate
+              ? `${Math.round(lvl.bitrate / 1000)}kbps`
+              : `Quality ${idx + 1}`,
+        }));
+        setQualityOptions(parsedLevels);
+        setActiveQualityIndex(hls ? hls.currentLevel : -1);
+
+        frameLoadedRef.current = true;
+        setFrameLoaded(true);
+        setIsBuffering(false);
+        applySubtitlePreference();
+        onFrameLoadedRef.current();
+        if (autoPlay) {
+          void attemptPlayWithSound();
+        }
+      });
+
+      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_evt, data: any) => {
+        if (!cancelled && Array.isArray(data?.audioTracks)) {
+          syncAudioTrackList(data.audioTracks);
+        }
+      });
+
+      hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_evt, data: any) => {
+        if (!cancelled && typeof data?.id === 'number') {
+          setActiveAudioTrackId(data.id);
+        }
+      });
+
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_evt, data: any) => {
+        if (!cancelled && typeof data?.level === 'number' && hls?.manualLevel !== -1) {
+          setActiveQualityIndex(data.level);
+        }
+      });
+
+      hls.on(Hls.Events.ERROR, (_evt, data: any) => {
+        if (cancelled) return;
+        const details = String(data?.details || '');
+        const httpCode = Number(data?.response?.code || 0);
+        const isExpiredToken =
+          httpCode === 401 ||
+          httpCode === 403 ||
+          httpCode === 410 ||
+          details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR ||
+          details === Hls.ErrorDetails.LEVEL_LOAD_ERROR ||
+          details === Hls.ErrorDetails.FRAG_LOAD_ERROR;
+
+        if (
+          isExpiredToken &&
+          source?.refreshable &&
+          onRefreshSourceRef.current &&
+          !tokenRefreshTriedRef.current
+        ) {
+          tokenRefreshTriedRef.current = true;
+          setIsBuffering(true);
+          setAudioDiagnosticNote('Refreshing signed stream link...');
+          void onRefreshSourceRef.current()
+            .then((refreshed) => {
+              if (!cancelled && refreshed) {
+                setInternalRefreshNonce((n) => n + 1);
+              } else if (!cancelled) {
                 handleNativeStreamFailure(
-                  inspection.reason || `${provider?.name || 'HLS stream'} contains video only with no audio track.`
-                );
-              } else if (inspection.hasSeparateAudioPlaylist) {
-                setAudioDiagnosticNote('Synced separate HLS audio rendition');
-              }
-            }
-          });
-
-          hls.on(HlsLib.Events.MANIFEST_PARSED, (_evt, data: any) => {
-            if (cancelled) return;
-            const tracks = Array.isArray(data?.audioTracks) ? data.audioTracks : hls?.audioTracks || [];
-            syncAudioTrackList(tracks);
-
-            const rawLevels = Array.isArray(data?.levels) ? data.levels : hls?.levels || [];
-            const parsedLevels = rawLevels.map((lvl: any, idx: number) => ({
-              index: idx,
-              height: typeof lvl?.height === 'number' ? lvl.height : undefined,
-              label: lvl?.height
-                ? `${lvl.height}p`
-                : lvl?.bitrate
-                  ? `${Math.round(lvl.bitrate / 1000)}kbps`
-                  : `Quality ${idx + 1}`,
-            }));
-            setQualityOptions(parsedLevels);
-            setActiveQualityIndex(hls ? hls.currentLevel : -1);
-
-            frameLoadedRef.current = true;
-            setFrameLoaded(true);
-            setIsBuffering(false);
-            applySubtitlePreference();
-            onFrameLoadedRef.current();
-            if (autoPlay) {
-              void attemptPlayWithSound();
-            }
-          });
-
-          hls.on(HlsLib.Events.AUDIO_TRACKS_UPDATED, (_evt, data: any) => {
-            if (!cancelled && Array.isArray(data?.audioTracks)) {
-              syncAudioTrackList(data.audioTracks);
-            }
-          });
-
-          hls.on(HlsLib.Events.AUDIO_TRACK_SWITCHED, (_evt, data: any) => {
-            if (!cancelled && typeof data?.id === 'number') {
-              setActiveAudioTrackId(data.id);
-            }
-          });
-
-          hls.on(HlsLib.Events.LEVEL_SWITCHED, (_evt, data: any) => {
-            if (!cancelled && typeof data?.level === 'number' && hls?.manualLevel !== -1) {
-              setActiveQualityIndex(data.level);
-            }
-          });
-
-          hls.on(HlsLib.Events.ERROR, (_evt, data: any) => {
-            if (cancelled) return;
-            const details = String(data?.details || '');
-            const httpCode = Number(data?.response?.code || 0);
-            const isExpiredToken =
-              httpCode === 401 ||
-              httpCode === 403 ||
-              httpCode === 410 ||
-              details === HlsLib.ErrorDetails.MANIFEST_LOAD_ERROR ||
-              details === HlsLib.ErrorDetails.LEVEL_LOAD_ERROR ||
-              details === HlsLib.ErrorDetails.FRAG_LOAD_ERROR;
-
-            if (
-              isExpiredToken &&
-              source?.refreshable &&
-              onRefreshSourceRef.current &&
-              !tokenRefreshTriedRef.current
-            ) {
-              tokenRefreshTriedRef.current = true;
-              setIsBuffering(true);
-              setAudioDiagnosticNote('Refreshing signed stream link...');
-              void onRefreshSourceRef.current()
-                .then((refreshed) => {
-                  if (!cancelled && refreshed) {
-                    setInternalRefreshNonce((n) => n + 1);
-                  } else if (!cancelled) {
-                    handleNativeStreamFailure(
-                      `${provider?.name || 'Stream'} signed token expired and could not be refreshed.`
-                    );
-                  }
-                })
-                .catch(() => {
-                  if (!cancelled) {
-                    handleNativeStreamFailure(
-                      `${provider?.name || 'Stream'} signed token expired and could not be refreshed.`
-                    );
-                  }
-                });
-              return;
-            }
-
-            const isAudioError =
-              details.toLowerCase().includes('audio') ||
-              details === HlsLib.ErrorDetails.BUFFER_ADD_CODEC_ERROR;
-
-            if (data?.fatal || isAudioError) {
-              if (isAudioError) {
-                setAudioDiagnosticNote(`Audio stream error (${details})`);
-                handleNativeStreamFailure(
-                  `${provider?.name || 'Stream'} audio track failed to load (${details}).`
-                );
-              } else {
-                handleNativeStreamFailure(
-                  `${provider?.name || 'HLS playback'} failed (${details || 'fatal media error'}).`
+                  `${provider?.name || 'Stream'} signed token expired and could not be refreshed.`
                 );
               }
-            }
-          });
-
-          const bustUrl =
-            internalRefreshNonce > 0
-              ? `${directMediaUrl}${directMediaUrl.includes('?') ? '&' : '?'}refresh=1&t=${internalRefreshNonce}`
-              : directMediaUrl;
-          hls.loadSource(bustUrl);
-          hls.attachMedia(video);
+            })
+            .catch(() => {
+              if (!cancelled) {
+                handleNativeStreamFailure(
+                  `${provider?.name || 'Stream'} signed token expired and could not be refreshed.`
+                );
+              }
+            });
           return;
         }
-      }
-      if (!cancelled) {
-        video.src = directMediaUrl;
-      }
-    };
 
-    void initializeMediaStream();
+        const isAudioError =
+          details.toLowerCase().includes('audio') ||
+          details === Hls.ErrorDetails.BUFFER_ADD_CODEC_ERROR;
+
+        if (data?.fatal || isAudioError) {
+          if (isAudioError) {
+            setAudioDiagnosticNote(`Audio stream error (${details})`);
+            handleNativeStreamFailure(
+              `${provider?.name || 'Stream'} audio track failed to load (${details}).`
+            );
+          } else {
+            handleNativeStreamFailure(
+              `${provider?.name || 'HLS playback'} failed (${details || 'fatal media error'}).`
+            );
+          }
+        }
+      });
+
+      const bustUrl =
+        internalRefreshNonce > 0
+          ? `${directMediaUrl}${directMediaUrl.includes('?') ? '&' : '?'}refresh=1&t=${internalRefreshNonce}`
+          : directMediaUrl;
+      hls.loadSource(bustUrl);
+      hls.attachMedia(video);
+    } else if (isM3u8 && video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = directMediaUrl;
+    } else {
+      video.src = directMediaUrl;
+    }
 
     return () => {
       cancelled = true;
@@ -748,26 +697,6 @@ export function Player({
       // Ignore storage error
     }
   }, [selectedSubtitle, useNativeVideoMode, source?.subtitles]);
-
-  // Persist and inject user caption styling rules cleanly
-  useEffect(() => {
-    try {
-      localStorage.setItem(CAPTION_STYLE_KEY, JSON.stringify(captionStyle));
-    } catch {
-      // Ignore storage error
-    }
-    const fontScale =
-      captionStyle.fontSize === 'small' ? '0.88em' : captionStyle.fontSize === 'large' ? '1.22em' : '1em';
-    const bgCss =
-      captionStyle.bgOpacity === 'none'
-        ? 'transparent'
-        : captionStyle.bgOpacity === 'solid'
-          ? 'rgba(9, 9, 15, 0.92)'
-          : 'rgba(9, 9, 15, 0.65)';
-    document.documentElement.style.setProperty('--av-cue-size', fontScale);
-    document.documentElement.style.setProperty('--av-cue-bg', bgCss);
-    document.documentElement.style.setProperty('--av-cue-color', captionStyle.color);
-  }, [captionStyle]);
 
   const iframeKey = `${provider?.key || 'none'}:${episode}:${language}:${embedUrl || 'empty'}:${reloadNonce}`;
 
@@ -993,24 +922,9 @@ export function Player({
       const ctx = shortcutRef.current;
       const key = e.key.toLowerCase();
 
-      if (e.key === '?' || (key === '/' && e.shiftKey)) {
-        e.preventDefault();
-        setShortcutsOpen((prev) => !prev);
-        return;
-      }
-      if (e.key === 'Escape') {
-        setShortcutsOpen(false);
-        setCaptionMenuOpen(false);
-        return;
-      }
       if (key === 'f') {
         e.preventDefault();
         ctx.handleFullscreen();
-        return;
-      }
-      if (key === 'n' && ctx.hasNextEpisode) {
-        e.preventDefault();
-        ctx.onNextEpisode();
         return;
       }
       if (e.shiftKey && e.key === 'ArrowLeft' && ctx.hasPrevEpisode) {
@@ -1030,15 +944,6 @@ export function Player({
       } else if (key === 'm') {
         e.preventDefault();
         setIsMuted((m) => !m);
-      } else if (e.key === 'ArrowLeft' && videoRef.current) {
-        e.preventDefault();
-        videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10);
-      } else if (e.key === 'ArrowRight' && videoRef.current) {
-        e.preventDefault();
-        videoRef.current.currentTime = Math.min(
-          videoRef.current.duration || videoRef.current.currentTime + 10,
-          videoRef.current.currentTime + 10
-        );
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -1074,18 +979,6 @@ export function Player({
       return null;
     }
   }, [embedUrl]);
-
-  const activeSkipSegment = useMemo(() => {
-    if (!useNativeVideoMode || !source?.skipData) return null;
-    const { intro, outro } = source.skipData;
-    if (intro && currentTimeSec >= intro.start && currentTimeSec < intro.end) {
-      return { label: 'Skip Intro', targetSec: intro.end };
-    }
-    if (outro && currentTimeSec >= outro.start && currentTimeSec < outro.end) {
-      return { label: 'Skip Outro', targetSec: outro.end };
-    }
-    return null;
-  }, [useNativeVideoMode, source?.skipData, currentTimeSec]);
 
   return (
     <div className="space-y-3">
@@ -1170,22 +1063,6 @@ export function Player({
               Browser autoplay policy requires a click to start unmuted audio playback.
             </p>
           </div>
-        )}
-
-        {useNativeVideoMode && activeSkipSegment && frameLoaded && !streamError && !autoplayBlocked && (
-          <button
-            type="button"
-            onClick={() => {
-              if (videoRef.current) {
-                videoRef.current.currentTime = activeSkipSegment.targetSec;
-                setCurrentTimeSec(Math.floor(activeSkipSegment.targetSec));
-              }
-            }}
-            className="av-btn-press absolute bottom-16 right-4 z-20 inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-[#09090F]/85 backdrop-blur-md px-3.5 py-2 text-xs font-semibold text-[#F5F3FF] shadow-lg hover:border-[#9B87FF] hover:bg-[#7C5CFF] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
-          >
-            <SkipForward className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>{activeSkipSegment.label}</span>
-          </button>
         )}
 
         {(streamError || (!loadingStream && !activeUrl)) && (
@@ -1539,97 +1416,24 @@ export function Player({
               )}
 
               {source?.subtitles && source.subtitles.length > 0 && (
-                <div className="relative inline-flex items-center gap-1">
-                  <label className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-100 dark:bg-[#171722] px-2 py-1 text-[11px] font-medium text-zinc-800 dark:text-[#F5F3FF]">
-                    <Subtitles className="h-3 w-3 text-[#9B87FF]" />
-                    <select
-                      aria-label="Subtitle language"
-                      value={selectedSubtitle}
-                      onChange={(e) => setSelectedSubtitle(e.target.value)}
-                      className="bg-transparent outline-none cursor-pointer"
-                    >
-                      <option value="off" className="bg-[#171722]">
-                        CC Off
-                      </option>
-                      {source.subtitles.map((sub, idx) => (
-                        <option key={`${sub.file}-${idx}`} value={sub.label} className="bg-[#171722]">
-                          {sub.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setCaptionMenuOpen((v) => !v)}
-                    aria-expanded={captionMenuOpen}
-                    aria-label="Caption appearance"
-                    title="Customize caption appearance"
-                    className="rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-100 dark:bg-[#171722] px-2 py-1 text-[11px] font-medium text-zinc-700 dark:text-[#F5F3FF] hover:border-[#9B87FF]"
+                <label className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-zinc-100 dark:bg-[#171722] px-2 py-1 text-[11px] font-medium text-zinc-800 dark:text-[#F5F3FF]">
+                  <Subtitles className="h-3 w-3 text-[#9B87FF]" />
+                  <select
+                    aria-label="Subtitle language"
+                    value={selectedSubtitle}
+                    onChange={(e) => setSelectedSubtitle(e.target.value)}
+                    className="bg-transparent outline-none cursor-pointer"
                   >
-                    CC Style
-                  </button>
-                  {captionMenuOpen && (
-                    <div className="absolute bottom-full right-0 mb-2 z-30 w-56 rounded-xl border border-zinc-200 dark:border-white/[0.1] bg-white dark:bg-[#171722] p-3 shadow-xl space-y-2.5 text-[11px]">
-                      <div className="flex items-center justify-between font-semibold text-zinc-900 dark:text-[#F5F3FF]">
-                        <span>Caption Styling</span>
-                        <button type="button" onClick={() => setCaptionMenuOpen(false)} aria-label="Close caption settings">
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                      <label className="block space-y-1">
-                        <span className="text-zinc-500 dark:text-[#A5A1B5]">Text Size</span>
-                        <select
-                          value={captionStyle.fontSize}
-                          onChange={(e) =>
-                            setCaptionStyle((s) => ({
-                              ...s,
-                              fontSize: e.target.value as CaptionStylePrefs['fontSize'],
-                            }))
-                          }
-                          className="w-full rounded-md border border-zinc-200 dark:border-white/[0.1] bg-transparent dark:bg-[#11111B] px-2 py-1"
-                        >
-                          <option value="small">Compact</option>
-                          <option value="medium">Standard</option>
-                          <option value="large">Large</option>
-                        </select>
-                      </label>
-                      <label className="block space-y-1">
-                        <span className="text-zinc-500 dark:text-[#A5A1B5]">Backdrop</span>
-                        <select
-                          value={captionStyle.bgOpacity}
-                          onChange={(e) =>
-                            setCaptionStyle((s) => ({
-                              ...s,
-                              bgOpacity: e.target.value as CaptionStylePrefs['bgOpacity'],
-                            }))
-                          }
-                          className="w-full rounded-md border border-zinc-200 dark:border-white/[0.1] bg-transparent dark:bg-[#11111B] px-2 py-1"
-                        >
-                          <option value="none">Transparent</option>
-                          <option value="half">Semi-Dark</option>
-                          <option value="solid">Solid Dark</option>
-                        </select>
-                      </label>
-                      <label className="block space-y-1">
-                        <span className="text-zinc-500 dark:text-[#A5A1B5]">Text Color</span>
-                        <select
-                          value={captionStyle.color}
-                          onChange={(e) =>
-                            setCaptionStyle((s) => ({
-                              ...s,
-                              color: e.target.value as CaptionStylePrefs['color'],
-                            }))
-                          }
-                          className="w-full rounded-md border border-zinc-200 dark:border-white/[0.1] bg-transparent dark:bg-[#11111B] px-2 py-1"
-                        >
-                          <option value="#FFFFFF">Crisp White</option>
-                          <option value="#FDE047">Amber Gold</option>
-                          <option value="#C4B5FD">Soft Lavender</option>
-                        </select>
-                      </label>
-                    </div>
-                  )}
-                </div>
+                    <option value="off" className="bg-[#171722]">
+                      CC Off
+                    </option>
+                    {source.subtitles.map((sub, idx) => (
+                      <option key={`${sub.file}-${idx}`} value={sub.label} className="bg-[#171722]">
+                        {sub.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               )}
             </>
           )}
@@ -1728,17 +1532,6 @@ export function Player({
               <span className="hidden sm:inline">Diagnostics</span>
             </button>
           )}
-
-          <button
-            type="button"
-            onClick={() => setShortcutsOpen(true)}
-            aria-label="Keyboard shortcuts (?)"
-            title="Keyboard shortcuts (?)"
-            className="av-btn-press inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-zinc-600 dark:text-[#A5A1B5] hover:bg-zinc-100 dark:hover:bg-[#171722] whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
-          >
-            <Keyboard className="h-3.5 w-3.5" />
-            <span className="hidden lg:inline">Shortcuts</span>
-          </button>
         </div>
         </div>
 
@@ -1812,51 +1605,6 @@ export function Player({
           </div>
         )}
       </div>
-
-      {shortcutsOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#09090F]/80 p-4 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Player Keyboard Shortcuts"
-          onClick={() => setShortcutsOpen(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-2xl border border-zinc-200 dark:border-white/[0.1] bg-white dark:bg-[#171722] p-5 shadow-2xl space-y-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-zinc-900 dark:text-[#F5F3FF]">
-                Player Keyboard Shortcuts
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShortcutsOpen(false)}
-                aria-label="Close shortcuts"
-                className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-[#20202D]"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <dl className="grid grid-cols-[1fr_auto] gap-y-2.5 gap-x-4 text-xs">
-              <dt className="text-zinc-600 dark:text-[#A5A1B5]">Play / Pause (HLS)</dt>
-              <dd className="font-mono font-semibold text-zinc-900 dark:text-[#F5F3FF]">Space / K</dd>
-              <dt className="text-zinc-600 dark:text-[#A5A1B5]">Seek Backward / Forward 10s</dt>
-              <dd className="font-mono font-semibold text-zinc-900 dark:text-[#F5F3FF]">← / →</dd>
-              <dt className="text-zinc-600 dark:text-[#A5A1B5]">Toggle Mute</dt>
-              <dd className="font-mono font-semibold text-zinc-900 dark:text-[#F5F3FF]">M</dd>
-              <dt className="text-zinc-600 dark:text-[#A5A1B5]">Toggle Fullscreen</dt>
-              <dd className="font-mono font-semibold text-zinc-900 dark:text-[#F5F3FF]">F</dd>
-              <dt className="text-zinc-600 dark:text-[#A5A1B5]">Next Episode</dt>
-              <dd className="font-mono font-semibold text-zinc-900 dark:text-[#F5F3FF]">N or Shift+→</dd>
-              <dt className="text-zinc-600 dark:text-[#A5A1B5]">Previous Episode</dt>
-              <dd className="font-mono font-semibold text-zinc-900 dark:text-[#F5F3FF]">Shift+←</dd>
-              <dt className="text-zinc-600 dark:text-[#A5A1B5]">Toggle This Guide</dt>
-              <dd className="font-mono font-semibold text-zinc-900 dark:text-[#F5F3FF]">?</dd>
-            </dl>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

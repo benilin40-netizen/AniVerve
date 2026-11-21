@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Bell, Bookmark, CloudOff, Download, Heart, History, Play, Plus, Trash2 } from 'lucide-react';
+import { Bell, Bookmark, Heart, History, Play, Plus, Trash2 } from 'lucide-react';
 import type { WatchStatus } from '../../types/anime.ts';
 import { WATCH_STATUS_LABELS } from '../../config/constants.ts';
 import { useAuth } from '../../context/AuthContext.tsx';
@@ -9,7 +9,6 @@ import { useNotifications } from '../../context/NotificationContext.tsx';
 import { useDocumentMeta } from '../../hooks/useDocumentMeta.ts';
 import { SafeImage } from '../../components/common/SafeImage.tsx';
 import { EmptyState } from '../../components/common/EmptyState.tsx';
-import { ListImporterModal } from '../../components/library/ListImporterModal.tsx';
 
 type TabKey = 'ALL' | WatchStatus | 'FAVORITES' | 'HISTORY';
 
@@ -19,7 +18,7 @@ export function WatchlistPage() {
     description: 'Manage your anime watchlist, favorites, Continue Watching queue, and viewing history.',
   });
 
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, loading: authLoading } = useAuth();
   const {
     watchlist,
     favorites,
@@ -31,7 +30,6 @@ export function WatchlistPage() {
   const { notifications, markAsRead } = useNotifications();
 
   const [tab, setTab] = useState<TabKey>('ALL');
-  const [importOpen, setImportOpen] = useState(false);
 
   const alertByAnimeId = useMemo(() => {
     const map = new Map<number, (typeof notifications)[number]>();
@@ -40,6 +38,18 @@ export function WatchlistPage() {
     }
     return map;
   }, [notifications]);
+
+  if (!authLoading && !isAuthenticated) {
+    return (
+      <EmptyState
+        icon={Bookmark}
+        title="Sign in to access your Watchlist"
+        description="Save anime you are watching, track completed episodes, and resume playback across sessions."
+        actionLabel="Sign In"
+        actionTo="/login"
+      />
+    );
+  }
 
   const continueWatching = watchHistory.filter(
     (entry, idx, arr) => arr.findIndex((x) => x.anilistId === entry.anilistId) === idx
@@ -50,47 +60,14 @@ export function WatchlistPage() {
 
   return (
     <div className="space-y-8 animate-av-enter">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-zinc-900 dark:text-[#F5F3FF]">
-            Personal Library
-          </h1>
-          <p className="text-sm text-zinc-500 dark:text-[#A5A1B5] mt-1 tabular-nums">
-            {watchlist.length} saved · {favorites.length} favorites · {watchHistory.length} episodes logged
-          </p>
-        </div>
-
-        {isAuthenticated && (
-          <button
-            type="button"
-            onClick={() => setImportOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-white/[0.1] bg-white dark:bg-[#171722] px-3.5 py-2 text-xs font-medium text-zinc-800 dark:text-[#F5F3FF] hover:border-[#9B87FF] transition-colors"
-          >
-            <Download className="h-3.5 w-3.5 text-[#9B87FF]" />
-            Import List
-          </button>
-        )}
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-zinc-900 dark:text-[#F5F3FF]">
+          Personal Library
+        </h1>
+        <p className="text-sm text-zinc-500 dark:text-[#A5A1B5] mt-1 tabular-nums">
+          {watchlist.length} saved · {favorites.length} favorites · {watchHistory.length} episodes logged
+        </p>
       </div>
-
-      {!isAuthenticated && (
-        <div
-          role="status"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#9B87FF]/30 bg-[#7C5CFF]/[0.07] px-4 py-3 text-xs"
-        >
-          <div className="flex items-center gap-2.5 text-zinc-700 dark:text-[#F5F3FF]">
-            <CloudOff className="h-4 w-4 text-[#9B87FF] shrink-0" />
-            <span>
-              Your library and watch progress are saved on this device. Sign in to sync across devices and import AniList lists.
-            </span>
-          </div>
-          <Link
-            to="/login"
-            className="rounded-lg bg-[#7C5CFF] hover:bg-[#9B87FF] px-3.5 py-1.5 font-semibold text-white whitespace-nowrap"
-          >
-            Sign in to sync
-          </Link>
-        </div>
-      )}
 
       {/* New Episodes From Watchlist Strip */}
       {notifications.length > 0 && (tab === 'ALL' || tab === 'WATCHING' || tab === 'PLAN_TO_WATCH') && (
@@ -410,8 +387,6 @@ export function WatchlistPage() {
           ))}
         </div>
       )}
-
-      <ListImporterModal open={importOpen} onClose={() => setImportOpen(false)} />
     </div>
   );
 }

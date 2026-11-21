@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarClock, CalendarPlus, Globe, Play, RefreshCw } from 'lucide-react';
+import { CalendarClock, Globe, Play, RefreshCw } from 'lucide-react';
 import type { AiringScheduleItem, DataProvenanceMeta } from '../../types/anime.ts';
 import { airingScheduleService } from '../../services/airingScheduleService.ts';
 import { useDocumentMeta } from '../../hooks/useDocumentMeta.ts';
@@ -44,21 +44,11 @@ const DAY_FILTERS: Array<{ id: ScheduleFilter; label: string }> = [
   { id: 'recent', label: 'Aired' },
 ];
 
-function formatIcsUtc(epochSec: number): string {
-  const d = new Date(epochSec * 1000);
-  return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-}
-
-function escapeIcsText(text: string): string {
-  return text.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
-}
-
 export function SchedulePage() {
   useDocumentMeta({
     title: 'Live Airing Schedule & Countdowns',
     description:
       'Track exact release times calibrated to Africa/Kampala or your preferred timezone with live countdowns.',
-    canonicalPath: '/schedule',
   });
 
   const [filter, setFilter] = useState<ScheduleFilter>('today');
@@ -100,8 +90,8 @@ export function SchedulePage() {
         );
         setScheduleMeta(res._meta || null);
       }
-    } catch (err: unknown) {
-      if (!signal?.aborted && (err as { name?: string })?.name !== 'AbortError') {
+    } catch (err: any) {
+      if (!signal?.aborted && err?.name !== 'AbortError') {
         setError(err instanceof Error ? err.message : 'Failed to load airing schedule.');
       }
     } finally {
@@ -142,51 +132,9 @@ export function SchedulePage() {
     if (filter === 'all') {
       return schedules.filter((s) => s.airingAt >= nowSec - 86400);
     }
+    // Day of week filter in selected timezone
     return schedules.filter((s) => getWeekdayKeyInTimezone(s.airingAt, timezone) === filter);
   }, [schedules, filter, timezone, todayKeyInTz, nowSec]);
-
-  const handleExportIcs = () => {
-    const targetItems = filtered.length > 0 ? filtered : schedules.slice(0, 30);
-    if (targetItems.length === 0) return;
-
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://aniverve.app';
-    const dtstamp = formatIcsUtc(Math.floor(Date.now() / 1000));
-    const lines = [
-      'BEGIN:VCALENDAR',
-      'VERSION:2.0',
-      'PRODID:-//AniVerve//Airing Schedule//EN',
-      'CALSCALE:GREGORIAN',
-      'METHOD:PUBLISH',
-      `X-WR-CALNAME:AniVerve Airing Schedule (${timezone})`,
-    ];
-
-    for (const item of targetItems) {
-      const title = getPrimaryTitle(item.media.title);
-      const { dateLabel, timeLabel } = formatLocalReleaseTime(item.airingAt, timezone);
-      lines.push(
-        'BEGIN:VEVENT',
-        `UID:aniverve-${item.media.id}-ep-${item.episode}@aniverve`,
-        `DTSTAMP:${dtstamp}`,
-        `DTSTART:${formatIcsUtc(item.airingAt)}`,
-        `DTEND:${formatIcsUtc(item.airingAt + 24 * 60)}`,
-        `SUMMARY:${escapeIcsText(`${title} · Episode ${item.episode}`)}`,
-        `DESCRIPTION:${escapeIcsText(`Watch Episode ${item.episode} on AniVerve (${dateLabel} ${timeLabel} ${timezone}).`)}`,
-        `URL:${origin}/watch/${item.media.slug}/${item.episode}`,
-        'END:VEVENT'
-      );
-    }
-
-    lines.push('END:VCALENDAR');
-    const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `aniverve-schedule-${filter}.ics`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  };
 
   return (
     <div className="space-y-6 animate-av-enter">
@@ -222,16 +170,6 @@ export function SchedulePage() {
               ))}
             </select>
           </div>
-
-          <button
-            type="button"
-            onClick={handleExportIcs}
-            disabled={schedules.length === 0}
-            className="av-btn-press inline-flex items-center gap-2 rounded-lg border border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[#171722] px-3.5 py-2 text-xs font-medium text-zinc-700 dark:text-[#F5F3FF] hover:border-[#9B87FF] disabled:opacity-40 whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
-          >
-            <CalendarPlus className="h-3.5 w-3.5 text-[#9B87FF]" />
-            Export .ics
-          </button>
 
           <button
             type="button"

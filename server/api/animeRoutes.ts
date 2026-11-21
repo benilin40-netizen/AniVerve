@@ -24,11 +24,9 @@ import {
   universalSearch,
 } from '../services/universeService.ts';
 import { optionalAuth, type AuthenticatedRequest } from '../middleware/authMiddleware.ts';
-import { rateLimiters } from '../middleware/rateLimit.ts';
 import { dbGet, dbList, ensureDefaultSeedData, logAppError } from '../services/db.ts';
-import type { StoredUserRecord } from '../services/authService.ts';
 import { HttpRequestError } from '../utils/httpClient.ts';
-import type { AnimeSummary, SystemSettings, UniversePreferences, WatchlistItem } from '../../src/types/anime.ts';
+import type { AnimeSummary, SystemSettings } from '../../src/types/anime.ts';
 
 const router = Router();
 
@@ -83,7 +81,6 @@ router.get('/home', async (req, res) => {
       .filter((o) => o.featured && !o.hidden && o.anime)
       .map((o) => o.anime!);
 
-    res.setHeader('Cache-Control', 'public, max-age=120, stale-while-revalidate=300');
     res.json({
       _meta: collections._meta,
       season: collections.season,
@@ -195,7 +192,7 @@ router.get('/explore', async (req, res) => {
   }
 });
 
-router.get('/search', rateLimiters.search, async (req, res) => {
+router.get('/search', async (req, res) => {
   try {
     const query = typeof req.query.q === 'string' ? req.query.q.slice(0, 120) : '';
     if (!query.trim()) {
@@ -205,7 +202,6 @@ router.get('/search', rateLimiters.search, async (req, res) => {
       searchAnimeQuick(query, 8),
       getCatalogOverridesMap(),
     ]);
-    res.setHeader('Cache-Control', 'public, max-age=60');
     res.json({ results: filterHidden(results, overrides) });
   } catch (err) {
     res.status(502).json({
@@ -322,7 +318,7 @@ router.get('/faceoff', optionalAuth, async (req: AuthenticatedRequest, res) => {
   }
 });
 
-router.get('/universal-search', rateLimiters.search, async (req, res) => {
+router.get('/universal-search', async (req, res) => {
   try {
     const query = typeof req.query.q === 'string' ? req.query.q.slice(0, 120) : '';
     const result = await universalSearch(query);
@@ -330,86 +326,6 @@ router.get('/universal-search', rateLimiters.search, async (req, res) => {
   } catch (err) {
     res.status(502).json({
       error: err instanceof Error ? err.message : 'Universal search failed.',
-    });
-  }
-});
-
-router.get('/because-you-watched', optionalAuth, async (req: AuthenticatedRequest, res) => {
-  try {
-    const seedIdParam = req.query.anilistId ? Number(req.query.anilistId) : 0;
-    let seedAnimeId = Number.isInteger(seedIdParam) && seedIdParam > 0 ? seedIdParam : 0;
-    let seedTitle = '';
-
-    if (!seedAnimeId && req.authUser) {
-      const watchlists = await dbList<WatchlistItem>('watchlists', (w) => w.userId === req.authUser!.id);
-      const sorted = watchlists.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      if (sorted[0]) {
-        seedAnimeId = sorted[0].anilistId;
-        seedTitle = sorted[0].animeTitle;
-      }
-    }
-
-    if (!seedAnimeId) {
-      return res.json({ seedAnimeId: null, seedTitle: null, recommendations: [] });
-    }
-
-    const { anime } = await getAnimeDetailsWithMeta(seedAnimeId);
-    const recs =
-      anime?.recommendations?.nodes
-        ?.map((n) => n.mediaRecommendation)
-        .filter((x): x is AnimeSummary => Boolean(x))
-        .slice(0, 12) || [];
-
-    const overrides = await getCatalogOverridesMap();
-    return res.json({
-      seedAnimeId,
-      seedTitle: seedTitle || anime?.title.english || anime?.title.romaji || `Anime #${seedAnimeId}`,
-      recommendations: filterHidden(recs, overrides),
-    });
-  } catch (err) {
-    return res.status(502).json({
-      error: err instanceof Error ? err.message : 'Failed to compute recommendations.',
-    });
-  }
-});
-
-router.get('/public-profile/:username', async (req, res) => {
-  try {
-    const targetUsername = req.params.username.trim().toLowerCase();
-    const matched = await dbList<StoredUserRecord>(
-      'users',
-      (u) => u.username.toLowerCase() === targetUsername && u.status === 'ACTIVE'
-    );
-    const user = matched[0];
-    if (!user) {
-      return res.status(404).json({ error: 'Public profile not found.' });
-    }
-
-    const prefs = await dbGet<UniversePreferences>('user_preferences', user.id);
-    if (!prefs?.profilePublic) {
-      return res.status(403).json({ error: 'This user keeps their anime profile private.' });
-    }
-
-    const watchlist = await dbList<WatchlistItem>('watchlists', (w) => w.userId === user.id);
-    watchlist.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-
-    return res.json({
-      profile: {
-        username: user.username,
-        avatarUrl: user.avatarUrl || null,
-        bio: user.bio || null,
-        createdAt: user.createdAt,
-      },
-      stats: {
-        totalSaved: watchlist.length,
-        watching: watchlist.filter((w) => w.status === 'WATCHING').length,
-        completed: watchlist.filter((w) => w.status === 'COMPLETED').length,
-      },
-      watchlist: watchlist.slice(0, 100),
-    });
-  } catch (err) {
-    return res.status(500).json({
-      error: err instanceof Error ? err.message : 'Unable to load public profile.',
     });
   }
 });

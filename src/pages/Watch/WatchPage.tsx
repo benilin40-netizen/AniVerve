@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, Bookmark, Check, Info, Loader2, Server, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Bookmark, Check, Info, Loader2, Server, WifiOff } from 'lucide-react';
 import type {
   AnimeDetail,
   DiagnosticReport,
@@ -116,9 +116,8 @@ export function WatchPage() {
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [animeLoadError, setAnimeLoadError] = useState<string | null>(null);
   const [networkError, setNetworkError] = useState<string | null>(null);
-  const [guestBannerDismissed, setGuestBannerDismissed] = useState(false);
 
-  const { getWatchlistEntry, upsertWatchlist, recordHistory, watchHistory, isGuestMode } = useLibrary();
+  const { getWatchlistEntry, upsertWatchlist, recordHistory, watchHistory } = useLibrary();
 
   const savedHistoryForEp = useMemo(
     () =>
@@ -516,16 +515,8 @@ export function WatchPage() {
 
   const discoveredEpisodes = episodeDiscovery?.episodes;
 
-  const isDiscoveredPlayable = (item: { playable?: boolean; providers: string[] }): boolean =>
-    item.playable !== false && item.providers.length > 0;
-
-  const currentDiscoveredEpisode = useMemo(
-    () => discoveredEpisodes?.find((e) => e.episodeNumber === currentEpisode) || null,
-    [discoveredEpisodes, currentEpisode]
-  );
-
   const availableEpisodeCount = useMemo(() => {
-    if (discoveredEpisodes !== undefined) {
+    if (discoveredEpisodes && discoveredEpisodes.length > 0) {
       return discoveredEpisodes.length;
     }
     if (!anime) return Math.max(1, Math.ceil(currentEpisode));
@@ -545,45 +536,17 @@ export function WatchPage() {
   }, [discoveredEpisodes, currentEpisode]);
 
   const prevEpisodeTarget = useMemo(() => {
-    if (discoveredEpisodes !== undefined) {
-      if (discoveredEpisodes.length === 0) return null;
-      if (currentEpIndex >= 0) {
-        for (let i = currentEpIndex - 1; i >= 0; i -= 1) {
-          if (isDiscoveredPlayable(discoveredEpisodes[i])) {
-            return discoveredEpisodes[i].episodeNumber;
-          }
-        }
-        return null;
-      }
-      for (let i = discoveredEpisodes.length - 1; i >= 0; i -= 1) {
-        const ep = discoveredEpisodes[i];
-        if (ep.episodeNumber < currentEpisode && isDiscoveredPlayable(ep)) {
-          return ep.episodeNumber;
-        }
-      }
-      return null;
+    if (discoveredEpisodes && discoveredEpisodes.length > 0) {
+      return currentEpIndex > 0 ? discoveredEpisodes[currentEpIndex - 1].episodeNumber : null;
     }
     return currentEpisode > 1 ? currentEpisode - 1 : null;
   }, [discoveredEpisodes, currentEpIndex, currentEpisode]);
 
   const nextEpisodeTarget = useMemo(() => {
-    if (discoveredEpisodes !== undefined) {
-      if (discoveredEpisodes.length === 0) return null;
-      if (currentEpIndex >= 0) {
-        for (let i = currentEpIndex + 1; i < discoveredEpisodes.length; i += 1) {
-          if (isDiscoveredPlayable(discoveredEpisodes[i])) {
-            return discoveredEpisodes[i].episodeNumber;
-          }
-        }
-        return null;
-      }
-      for (let i = 0; i < discoveredEpisodes.length; i += 1) {
-        const ep = discoveredEpisodes[i];
-        if (ep.episodeNumber > currentEpisode && isDiscoveredPlayable(ep)) {
-          return ep.episodeNumber;
-        }
-      }
-      return null;
+    if (discoveredEpisodes && discoveredEpisodes.length > 0) {
+      return currentEpIndex >= 0 && currentEpIndex < discoveredEpisodes.length - 1
+        ? discoveredEpisodes[currentEpIndex + 1].episodeNumber
+        : null;
     }
     return currentEpisode < availableEpisodeCount ? currentEpisode + 1 : null;
   }, [discoveredEpisodes, currentEpIndex, currentEpisode, availableEpisodeCount]);
@@ -625,24 +588,6 @@ export function WatchPage() {
       allServersUnavailable ||
       (!activeSource?.embedUrl && !activeSource?.proxiedHlsUrl && !activeSource?.hlsUrl)
     ) {
-      if (currentDiscoveredEpisode?.playable === false) {
-        return {
-          valid: false,
-          url: null,
-          error:
-            currentDiscoveredEpisode.unavailableReason ||
-            `Episode ${currentEpisode} is currently unavailable on active streaming providers.`,
-        };
-      }
-      if (!loadingEpisodes && episodeDiscovery?.discoveryStatus === 'unavailable') {
-        return {
-          valid: false,
-          url: null,
-          error:
-            episodeDiscovery.notice ||
-            'No playable streams are available for this anime from active providers yet.',
-        };
-      }
       const allNotFound =
         sourceResolveErrors.length > 0 && sourceResolveErrors.every((e) => e.status === 404);
       if (resolveFatalError) {
@@ -692,10 +637,6 @@ export function WatchPage() {
     loadingProviders,
     activeSource,
     allServersUnavailable,
-    currentDiscoveredEpisode,
-    loadingEpisodes,
-    episodeDiscovery?.discoveryStatus,
-    episodeDiscovery?.notice,
     sourceResolveErrors,
     resolveFatalError,
     providerRegistry,
@@ -1095,34 +1036,6 @@ export function WatchPage() {
         <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-700 dark:text-amber-300">
           <WifiOff className="h-4 w-4 shrink-0" />
           <span>{networkError || animeLoadError}</span>
-        </div>
-      )}
-
-      {isGuestMode && !guestBannerDismissed && (
-        <div
-          role="region"
-          aria-label="Guest playback notice"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#9B87FF]/30 bg-[#7C5CFF]/8 px-4 py-2.5 text-xs"
-        >
-          <span className="text-zinc-700 dark:text-[#D6CEFF]">
-            Playing as guest — watch progress saved locally on this device.
-          </span>
-          <div className="flex items-center gap-2 shrink-0">
-            <Link
-              to="/login"
-              className="av-btn-press rounded-lg bg-[#7C5CFF] hover:bg-[#9B87FF] px-3 py-1.5 font-semibold text-white"
-            >
-              Sign in to sync
-            </Link>
-            <button
-              type="button"
-              onClick={() => setGuestBannerDismissed(true)}
-              aria-label="Dismiss guest notice"
-              className="p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-white"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
         </div>
       )}
 

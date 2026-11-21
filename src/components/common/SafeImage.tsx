@@ -5,7 +5,6 @@ interface SafeImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>,
   src?: string | null;
   fallbackSrc?: string | null;
   fallbackLabel?: string;
-  fetchPriority?: 'high' | 'low' | 'auto';
 }
 
 export function SafeImage({
@@ -14,8 +13,6 @@ export function SafeImage({
   fallbackLabel,
   alt,
   className = '',
-  decoding = 'async',
-  fetchPriority,
   onLoad,
   onError,
   ...rest
@@ -60,9 +57,7 @@ export function SafeImage({
       ref={imgRef}
       src={activeSrc}
       alt={alt || ''}
-      decoding={decoding}
       referrerPolicy="no-referrer"
-      fetchPriority={fetchPriority}
       onLoad={(e) => {
         setLoaded(true);
         onLoad?.(e);

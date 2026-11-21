@@ -4,17 +4,14 @@ import { CheckCircle2, Loader2, Mail, ShieldCheck } from 'lucide-react';
 import { authService } from '../../services/authService.ts';
 import { adminAuthService } from '../../services/adminAuthService.ts';
 import { useAuth } from '../../context/AuthContext.tsx';
-import { useLibrary } from '../../context/LibraryContext.tsx';
 import { useToast } from '../../context/ToastContext.tsx';
 import { useDocumentMeta } from '../../hooks/useDocumentMeta.ts';
 import { AdminSignInPanel } from '../../components/admin/AdminSignInPanel.tsx';
-import { ONBOARDING_PENDING_KEY } from '../../components/onboarding/OnboardingModal.tsx';
 
 export function LoginPage() {
   useDocumentMeta({ title: 'Sign In' });
   const navigate = useNavigate();
   const { refreshUser, isAdminAuthenticated } = useAuth();
-  const { syncGuestToAccount } = useLibrary();
   const { showToast } = useToast();
 
   const [email, setEmail] = useState('');
@@ -29,13 +26,7 @@ export function LoginPage() {
     try {
       await authService.login({ email, password });
       await refreshUser();
-      const synced = await syncGuestToAccount().catch(() => 0);
-      showToast(
-        synced > 0
-          ? `Signed in and synced ${synced} local library item(s).`
-          : 'Signed in successfully.',
-        'success'
-      );
+      showToast('Signed in successfully.', 'success');
       navigate('/watchlist');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to sign in.');
@@ -132,7 +123,6 @@ export function RegisterPage() {
   useDocumentMeta({ title: 'Create Account' });
   const navigate = useNavigate();
   const { refreshUser } = useAuth();
-  const { syncGuestToAccount } = useLibrary();
   const { showToast } = useToast();
 
   const [username, setUsername] = useState('');
@@ -148,13 +138,7 @@ export function RegisterPage() {
     setError(null);
     try {
       const res = await authService.register({ username, email, password });
-      try {
-        localStorage.setItem(ONBOARDING_PENDING_KEY, '1');
-      } catch {
-        // Ignore storage errors
-      }
       await refreshUser();
-      await syncGuestToAccount().catch(() => 0);
       showToast('Account created successfully.', 'success');
       if (res.verificationToken) {
         setVerificationToken(res.verificationToken);

@@ -1,79 +1,11 @@
-import crypto from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { verifySessionToken, type StoredUserRecord } from '../services/authService.ts';
 import { extractAdminSessionToken } from './adminAuthMiddleware.ts';
 import { verifyAdminSessionToken } from '../services/adminAuthService.ts';
 
-export const USER_CSRF_COOKIE = 'aniverve_user_csrf';
-
 export interface AuthenticatedRequest extends Request {
   authUser?: StoredUserRecord;
   authToken?: string;
-}
-
-export function issueUserCsrfCookie(res: Response, existingToken?: string): string {
-  const token = existingToken && existingToken.length >= 24 ? existingToken : crypto.randomBytes(24).toString('hex');
-  const isProd =
-    process.env.NODE_ENV === 'production' || Boolean(process.env.APP_URL?.startsWith('https://'));
-  res.cookie(USER_CSRF_COOKIE, token, {
-    httpOnly: false,
-    secure: isProd,
-    sameSite: isProd ? 'none' : 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: '/',
-  });
-  return token;
-}
-
-export function clearUserSessionCookies(res: Response) {
-  const isProd =
-    process.env.NODE_ENV === 'production' || Boolean(process.env.APP_URL?.startsWith('https://'));
-  res.clearCookie('aniverve_session', { path: '/', sameSite: isProd ? 'none' : 'lax', secure: isProd });
-  res.clearCookie(USER_CSRF_COOKIE, { path: '/', sameSite: isProd ? 'none' : 'lax', secure: isProd });
-}
-
-/**
- * Enforces CSRF protection for cookie-authenticated user mutations.
- * Requests authenticating with explicit Authorization: Bearer <token> headers
- * are immune to browser CSRF and pass directly.
- */
-export function requireUserCsrf(req: Request, res: Response, next: NextFunction) {
-  const method = req.method.toUpperCase();
-  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
-    return next();
-  }
-
-  // Explicit Bearer token authentication (not auto-attached by browser) bypasses CSRF cookie check
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    return next();
-  }
-
-  // Only enforce CSRF when relying on session cookies
-  const hasCookieSession = Boolean((req as any).cookies?.aniverve_session);
-  if (!hasCookieSession) {
-    return next();
-  }
-
-  const cookieToken = (req as any).cookies?.[USER_CSRF_COOKIE];
-  const headerToken = req.headers['x-csrf-token'];
-  if (
-    typeof cookieToken !== 'string' ||
-    typeof headerToken !== 'string' ||
-    cookieToken.length < 16 ||
-    cookieToken.length !== headerToken.length
-  ) {
-    return res.status(403).json({ error: 'Invalid or missing CSRF verification token.' });
-  }
-
-  const matches = crypto.timingSafeEqual(
-    Buffer.from(cookieToken, 'utf8'),
-    Buffer.from(headerToken, 'utf8')
-  );
-  if (!matches) {
-    return res.status(403).json({ error: 'CSRF token mismatch.' });
-  }
-  next();
 }
 
 export function buildAdministratorUserRecord(createdAt?: string): StoredUserRecord {

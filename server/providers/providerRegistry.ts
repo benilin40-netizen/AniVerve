@@ -26,7 +26,6 @@ import {
 } from '../utils/httpClient.ts';
 import { getCached, setCached } from '../services/cacheService.ts';
 import { dbGet, dbList, dbSet, ensureDefaultSeedData } from '../services/db.ts';
-import { inspectAniEmbedHtml } from '../services/providerInspection.ts';
 
 const DEFAULT_TELEMETRY: UnifiedPlaybackTelemetry = {
   currentActiveServer: 'none',
@@ -637,17 +636,16 @@ async function runApiHealthCheck(
     });
     const bodyText = await res.text().catch(() => '');
     const latencyMs = Date.now() - startMs;
-    const inspection = inspectAniEmbedHtml(bodyText, res.status);
-    const passed = inspection.ok;
-    const effectiveStatus = passed ? res.status : inspection.extractedStatus || res.status;
+    const hasHtmlShell = bodyText.includes('<html') || bodyText.includes('<!doctype html');
+    const passed = res.status >= 200 && res.status < 400 && hasHtmlShell;
 
     return {
       passed,
-      status: effectiveStatus,
+      status: res.status,
       latencyMs,
       message: passed
         ? `AniEmbed embed endpoint verified (HTTP ${res.status} · HTML player shell · ${latencyMs}ms)`
-        : `${inspection.reason || `AniEmbed embed endpoint returned HTTP ${effectiveStatus}`} (${latencyMs}ms).`,
+        : `AniEmbed embed endpoint returned HTTP ${res.status} (${latencyMs}ms).`,
       diagnostics: {
         apiHealth: passed ? 'healthy' : 'unreachable',
         searchLatencyMs: latencyMs,
@@ -697,44 +695,31 @@ async function runIframeEndpointProbe(embedUrl: string): Promise<{
         'User-Agent': BROWSER_USER_AGENT,
       },
     });
-    let softError: string | null = null;
-    let effectiveStatus = res.status;
-    if (embedUrl.includes('aniembed.se')) {
-      const html = await res.text().catch(() => '');
-      const inspection = inspectAniEmbedHtml(html, res.status);
-      if (!inspection.ok) {
-        softError = inspection.reason;
-        effectiveStatus = inspection.extractedStatus || 404;
-      }
-    } else {
-      try {
-        await res.body?.cancel();
-      } catch {
-        // ignore cancel errors
-      }
+    try {
+      await res.body?.cancel();
+    } catch {
+      // ignore cancel errors
     }
 
     const latencyMs = Date.now() - startMs;
     const xFrameOptions = res.headers.get('x-frame-options');
     const cspHeader = res.headers.get('content-security-policy');
     const policy = evaluateEmbeddingHeaders(xFrameOptions, cspHeader);
-    const reachable = res.status >= 200 && res.status < 400 && !softError;
+    const reachable = res.status >= 200 && res.status < 400;
     const passed = reachable && policy.allowed;
 
     return {
       passed,
-      status: effectiveStatus,
+      status: res.status,
       latencyMs,
       xFrameOptions,
       frameAncestors: policy.frameAncestors,
       embeddingAllowed: policy.allowed,
-      message: softError
-        ? `${softError} (${latencyMs}ms).`
-        : !reachable
-          ? `Embed iframe URL returned HTTP ${effectiveStatus} (${latencyMs}ms).`
-          : !policy.allowed
-            ? policy.reason || 'Embed iframe framing blocked by upstream headers.'
-            : `Endpoint reachable (HTTP ${res.status} · ${latencyMs}ms${policy.frameAncestors ? ` · ${policy.frameAncestors}` : ''}).`,
+      message: !reachable
+        ? `Embed iframe URL returned HTTP ${res.status} (${latencyMs}ms).`
+        : !policy.allowed
+          ? policy.reason || 'Embed iframe framing blocked by upstream headers.'
+          : `Endpoint reachable (HTTP ${res.status} · ${latencyMs}ms${policy.frameAncestors ? ` · ${policy.frameAncestors}` : ''}).`,
     };
   } catch (err) {
     const latencyMs = Date.now() - startMs;
@@ -1121,7 +1106,7 @@ export async function testProviderAdapter(
         ? !iframeCheck.embeddingAllowed
           ? 'restricted'
           : 'unreachable'
-        : existing.licenseVerified
+        : healthy || existing.licenseVerified
           ? 'available'
           : 'unverified';
       const nextHealthState = !healthy
@@ -1158,7 +1143,7 @@ export async function testProviderAdapter(
         lastCheckedAt: testedAt,
         lastSuccessAt: healthy ? testedAt : existing.lastSuccessAt ?? null,
         lastError: error,
-        licenseVerified: existing.licenseVerified,
+        licenseVerified: healthy ? true : existing.licenseVerified,
         isEnabled: existing.isEnabled,
       });
     }

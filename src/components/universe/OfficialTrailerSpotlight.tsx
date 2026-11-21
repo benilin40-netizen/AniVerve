@@ -85,8 +85,6 @@ export function OfficialTrailerSpotlight({
               <iframe
                 src={embedUrl}
                 title={`${title} Official Trailer`}
-                loading="lazy"
-                sandbox="allow-scripts allow-same-origin allow-presentation"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
                 className="h-full w-full"

@@ -39,31 +39,6 @@ describe('AniVerve Audio Playback, Redirect Sandbox & Navigation Lifecycle Verif
     originalYenime = await dbGet<StreamingProvider>('anime_providers', 'yenime');
     originalAniEmbed = await dbGet<StreamingProvider>('anime_providers', 'aniembed');
 
-    if (originalYenime) {
-      await dbSet('anime_providers', 'yenime', {
-        ...originalYenime,
-        isEnabled: true,
-        licenseVerified: true,
-        documentedPermission: true,
-        embeddingAllowed: true,
-        healthState: 'ACTIVE',
-        cooldownUntil: null,
-        verificationNotes: 'Authorized automated integration test configuration',
-      });
-    }
-    if (originalAniEmbed) {
-      await dbSet('anime_providers', 'aniembed', {
-        ...originalAniEmbed,
-        isEnabled: true,
-        licenseVerified: true,
-        documentedPermission: true,
-        embeddingAllowed: true,
-        healthState: 'ACTIVE',
-        cooldownUntil: null,
-        verificationNotes: 'Authorized automated integration test configuration',
-      });
-    }
-
     const app = createApp();
     await new Promise<void>((resolve) => {
       expressServer = app.listen(0, '127.0.0.1', () => {
@@ -261,22 +236,16 @@ video.m3u8`;
     assert.ok(csp.includes('https://player.yenime.net'));
     assert.ok(csp.includes('https://aniembed.se'));
 
-    // Signed /hls-proxy route must reject missing or forged tokens
-    const missingTokenRes = await fetch(`${apiBaseUrl}/api/streaming/hls-proxy`);
-    assert.equal(missingTokenRes.status, 400);
-    const forgedTokenRes = await fetch(`${apiBaseUrl}/api/streaming/hls-proxy?token=forged.token`);
-    assert.equal(forgedTokenRes.status, 403);
+    // Non-compliant /hls-proxy route must no longer exist
+    const proxyRes = await fetch(`${apiBaseUrl}/api/streaming/hls-proxy`);
+    assert.equal(proxyRes.status, 404);
 
     // Verify Player.tsx enforces sandbox blocking top-level navigation/popups, full hls.js, unmuted Play-with-sound UX, and complete teardown
     const playerSource = fs.readFileSync(
       path.resolve(process.cwd(), 'src/components/player/Player.tsx'),
       'utf8'
     );
-    assert.ok(
-      (playerSource.includes("import Hls from 'hls.js'") || playerSource.includes("import('hls.js')")) &&
-        !playerSource.includes('hls.light'),
-      'Must use full hls.js build, not hls.light'
-    );
+    assert.ok(playerSource.includes("import Hls from 'hls.js'"), 'Must use full hls.js build, not hls.light');
     assert.ok(
       playerSource.includes('sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"'),
       'Iframe must enforce sandbox without allow-top-navigation or unsolicited popups'

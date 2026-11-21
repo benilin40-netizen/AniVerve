@@ -301,8 +301,6 @@ export interface DiscoveredEpisode {
   isSpecial: boolean;
   hasSub: boolean;
   hasDub: boolean;
-  playable?: boolean;
-  unavailableReason?: string | null;
   providers: Array<'yenime' | 'aniembed'>;
   providerMappings: {
     yenime?: {

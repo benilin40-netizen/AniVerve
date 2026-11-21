@@ -381,36 +381,3 @@
     transition-duration: 0.01ms !important;
   }
 }
-
-/* Native caption track styling controlled cleanly by Player preferences */
-video::cue {
-  font-size: var(--av-cue-size, 1em);
-  background-color: var(--av-cue-bg, rgba(9, 9, 15, 0.72));
-  color: var(--av-cue-color, #ffffff);
-  font-family: var(--font-body);
-}
-
-.pb-safe {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
-.av-skip-link {
-  position: fixed;
-  top: -100px;
-  left: 16px;
-  z-index: 60;
-  padding: 10px 16px;
-  border-radius: 8px;
-  background: #7C5CFF;
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 600;
-  transition: top 140ms ease;
-}
-
-.av-skip-link:focus {
-  top: 12px;
-  outline: 2px solid #9B87FF;
-  outline-offset: 2px;
-}
-

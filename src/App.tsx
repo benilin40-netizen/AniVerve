@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect } from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext.tsx';
 import { ToastProvider } from './context/ToastContext.tsx';
@@ -8,8 +8,6 @@ import { NotificationProvider } from './context/NotificationContext.tsx';
 import { QuickViewProvider } from './context/QuickViewContext.tsx';
 import { ErrorBoundary } from './components/common/ErrorBoundary.tsx';
 import { AppShell } from './components/layout/AppShell.tsx';
-import { OnboardingModal } from './components/onboarding/OnboardingModal.tsx';
-import { analyticsService } from './services/analyticsService.ts';
 import {
   AdminLoginPage,
   ForgotPasswordPage,
@@ -41,32 +39,8 @@ const WatchlistPage = lazy(() =>
 const ProfilePage = lazy(() =>
   import('./pages/Profile/ProfilePage.tsx').then((m) => ({ default: m.ProfilePage }))
 );
-const PublicProfilePage = lazy(() =>
-  import('./pages/Profile/PublicProfilePage.tsx').then((m) => ({ default: m.PublicProfilePage }))
-);
 const AdminPage = lazy(() =>
   import('./pages/Admin/AdminPage.tsx').then((m) => ({ default: m.AdminPage }))
-);
-const AboutPage = lazy(() =>
-  import('./pages/Legal/LegalPages.tsx').then((m) => ({ default: m.AboutPage }))
-);
-const ContactPage = lazy(() =>
-  import('./pages/Legal/LegalPages.tsx').then((m) => ({ default: m.ContactPage }))
-);
-const TermsPage = lazy(() =>
-  import('./pages/Legal/LegalPages.tsx').then((m) => ({ default: m.TermsPage }))
-);
-const PrivacyPage = lazy(() =>
-  import('./pages/Legal/LegalPages.tsx').then((m) => ({ default: m.PrivacyPage }))
-);
-const DmcaPage = lazy(() =>
-  import('./pages/Legal/LegalPages.tsx').then((m) => ({ default: m.DmcaPage }))
-);
-const NotFoundPage = lazy(() =>
-  import('./pages/Errors/ErrorPages.tsx').then((m) => ({ default: m.NotFoundPage }))
-);
-const GonePage = lazy(() =>
-  import('./pages/Errors/ErrorPages.tsx').then((m) => ({ default: m.GonePage }))
 );
 
 function RouteLoadingFallback() {
@@ -102,14 +76,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function PageViewTracker() {
-  const location = useLocation();
-  useEffect(() => {
-    analyticsService.trackPageView(location.pathname);
-  }, [location.pathname]);
-  return null;
-}
-
 export default function App() {
   return (
     <ErrorBoundary>
@@ -120,49 +86,118 @@ export default function App() {
               <NotificationProvider>
                 <QuickViewProvider>
                   <BrowserRouter>
-                    <PageViewTracker />
-                    <AppShell>
-                      <OnboardingModal />
-                      <ErrorBoundary>
-                        <Suspense fallback={<RouteLoadingFallback />}>
-                          <Routes>
-                            <Route path="/" element={<HomePage />} />
-                            <Route path="/explore" element={<ExplorePage mode="explore" />} />
-                            <Route path="/genres" element={<ExplorePage mode="genres" />} />
-                            <Route path="/seasonal" element={<ExplorePage mode="seasonal" />} />
-                            <Route path="/movies" element={<ExplorePage mode="movies" />} />
-                            <Route path="/popular" element={<ExplorePage mode="popular" />} />
-                            <Route path="/schedule" element={<SchedulePage />} />
-                            <Route path="/anime/:slug" element={<AnimeDetailsPage />} />
-                            <Route path="/watch/:slug/:episode" element={<WatchPage />} />
-                            <Route path="/watch/:slug" element={<WatchPage />} />
-                            <Route path="/watchlist" element={<WatchlistPage />} />
-                            <Route
-                              path="/profile"
-                              element={
-                                <ProtectedRoute>
-                                  <ProfilePage />
-                                </ProtectedRoute>
-                              }
-                            />
-                            <Route path="/u/:username" element={<PublicProfilePage />} />
-                            <Route path="/about" element={<AboutPage />} />
-                            <Route path="/contact" element={<ContactPage />} />
-                            <Route path="/terms" element={<TermsPage />} />
-                            <Route path="/privacy" element={<PrivacyPage />} />
-                            <Route path="/dmca" element={<DmcaPage />} />
-                            <Route path="/410" element={<GonePage />} />
-                            <Route path="/admin" element={<AdminPage />} />
-                            <Route path="/admin/login" element={<AdminLoginPage />} />
-                            <Route path="/login" element={<LoginPage />} />
-                            <Route path="/register" element={<RegisterPage />} />
-                            <Route path="/verify-email" element={<VerifyEmailPage />} />
-                            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-                            <Route path="*" element={<NotFoundPage />} />
-                          </Routes>
-                        </Suspense>
-                      </ErrorBoundary>
-                    </AppShell>
+                  <AppShell>
+                    <ErrorBoundary>
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <Routes>
+                    <Route
+                      path="/"
+                      element={
+                        <ProtectedRoute>
+                          <HomePage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/explore"
+                      element={
+                        <ProtectedRoute>
+                          <ExplorePage mode="explore" />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/genres"
+                      element={
+                        <ProtectedRoute>
+                          <ExplorePage mode="genres" />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/seasonal"
+                      element={
+                        <ProtectedRoute>
+                          <ExplorePage mode="seasonal" />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/movies"
+                      element={
+                        <ProtectedRoute>
+                          <ExplorePage mode="movies" />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/popular"
+                      element={
+                        <ProtectedRoute>
+                          <ExplorePage mode="popular" />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/schedule"
+                      element={
+                        <ProtectedRoute>
+                          <SchedulePage />
+                        </ProtectedRoute>
+                      }
+                    />
+
+                    <Route
+                      path="/anime/:slug"
+                      element={
+                        <ProtectedRoute>
+                          <AnimeDetailsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/watch/:slug/:episode"
+                      element={
+                        <ProtectedRoute>
+                          <WatchPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/watch/:slug"
+                      element={
+                        <ProtectedRoute>
+                          <WatchPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/watchlist"
+                      element={
+                        <ProtectedRoute>
+                          <WatchlistPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/profile"
+                      element={
+                        <ProtectedRoute>
+                          <ProfilePage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route path="/admin" element={<AdminPage />} />
+                    <Route path="/admin/login" element={<AdminLoginPage />} />
+                    <Route path="/login" element={<LoginPage />} />
+                    <Route path="/register" element={<RegisterPage />} />
+                    <Route path="/verify-email" element={<VerifyEmailPage />} />
+                    <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                        </Routes>
+                      </Suspense>
+                    </ErrorBoundary>
+                  </AppShell>
                   </BrowserRouter>
                 </QuickViewProvider>
               </NotificationProvider>

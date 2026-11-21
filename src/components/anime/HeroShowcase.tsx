@@ -1,50 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  Bookmark,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Info,
-  Pause,
-  Play,
-  Youtube,
-} from 'lucide-react';
+import { Bookmark, Check, ChevronLeft, ChevronRight, Info, Play, Youtube } from 'lucide-react';
 import type { AnimeSummary } from '../../types/anime.ts';
 import { FALLBACK_BANNER_IMAGE } from '../../config/constants.ts';
 import { getPrimaryTitle } from '../../utils/slug.ts';
 import { useLibrary } from '../../context/LibraryContext.tsx';
 import { usePrefersReducedMotion } from '../../hooks/useInView.ts';
-import { prefetchRoute } from '../../utils/prefetchRoute.ts';
 import { SafeImage } from '../common/SafeImage.tsx';
 import { TrailerModal } from './TrailerModal.tsx';
-
-const VISITED_KEY = 'aniverve-visited';
-
-function checkIsFirstVisit(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    return !localStorage.getItem(VISITED_KEY);
-  } catch {
-    return false;
-  }
-}
-
-function markVisited(): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(VISITED_KEY, '1');
-  } catch {
-    // ignore storage errors
-  }
-}
 
 export function HeroShowcase({ items }: { items: AnimeSummary[] }) {
   const [index, setIndex] = useState(0);
   const [trailerOpen, setTrailerOpen] = useState(false);
-  const [hoverPaused, setHoverPaused] = useState(false);
-  const [userPaused, setUserPaused] = useState(false);
-  const [isFirstVisit, setIsFirstVisit] = useState<boolean>(() => checkIsFirstVisit());
+  const [paused, setPaused] = useState(false);
   const sectionRef = useRef<HTMLElement | null>(null);
   const backdropRef = useRef<HTMLDivElement | null>(null);
   const touchStartXRef = useRef<number | null>(null);
@@ -52,15 +20,14 @@ export function HeroShowcase({ items }: { items: AnimeSummary[] }) {
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const slides = items.slice(0, 6);
-  const effectivePaused = hoverPaused || userPaused || trailerOpen || prefersReducedMotion;
 
   useEffect(() => {
-    if (slides.length <= 1 || effectivePaused) return;
+    if (slides.length <= 1 || trailerOpen || paused) return;
     const timer = setInterval(() => {
       setIndex((prev) => (prev + 1) % slides.length);
     }, 8500);
     return () => clearInterval(timer);
-  }, [slides.length, effectivePaused]);
+  }, [slides.length, trailerOpen, paused]);
 
   useEffect(() => {
     if (prefersReducedMotion || typeof window === 'undefined') return;
@@ -104,7 +71,7 @@ export function HeroShowcase({ items }: { items: AnimeSummary[] }) {
   };
 
   const handlePointerLeave = () => {
-    setHoverPaused(false);
+    setPaused(false);
     backdropRef.current?.style.setProperty('--hero-px', '0px');
   };
 
@@ -125,21 +92,14 @@ export function HeroShowcase({ items }: { items: AnimeSummary[] }) {
     }
   };
 
-  const dismissFirstVisit = () => {
-    if (isFirstVisit) {
-      markVisited();
-      setIsFirstVisit(false);
-    }
-  };
-
   return (
     <section
       ref={sectionRef}
-      onMouseEnter={() => setHoverPaused(true)}
+      onMouseEnter={() => setPaused(true)}
       onMouseMove={handlePointerMove}
       onMouseLeave={handlePointerLeave}
-      onFocusCapture={() => setHoverPaused(true)}
-      onBlurCapture={() => setHoverPaused(false)}
+      onFocusCapture={() => setPaused(true)}
+      onBlurCapture={() => setPaused(false)}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       aria-label="Featured Anime Spotlight"
@@ -179,12 +139,9 @@ export function HeroShowcase({ items }: { items: AnimeSummary[] }) {
                   src={slide.bannerImage || slide.coverImage?.extraLarge || FALLBACK_BANNER_IMAGE}
                   fallbackSrc={FALLBACK_BANNER_IMAGE}
                   alt={isActive ? slideTitle : ''}
-                  width={1920}
-                  height={1080}
                   loading={sIdx === 0 ? 'eager' : 'lazy'}
-                  fetchPriority={sIdx === 0 ? 'high' : undefined}
                   className={`h-full w-full object-cover object-center opacity-85 ${
-                    isActive && !prefersReducedMotion && !userPaused ? 'animate-hero-zoom' : ''
+                    isActive && !prefersReducedMotion ? 'animate-hero-zoom' : ''
                   }`}
                 />
               </div>
@@ -198,12 +155,6 @@ export function HeroShowcase({ items }: { items: AnimeSummary[] }) {
 
         <div className="relative z-10 w-full max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-10 sm:pb-14 flex flex-col lg:flex-row lg:items-end justify-between gap-8">
           <div className="max-w-2xl" key={`copy-${current.id}`}>
-            {isFirstVisit && (
-              <p className="text-xs sm:text-sm text-[#D6CEFF] mb-2 font-medium tracking-tight">
-                Stream HD anime instantly with live airing schedules and cross-device progress.
-              </p>
-            )}
-
             <div className="av-hero-stagger-1">
               <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-[#F5F3FF] text-balance mb-3 leading-[1.08]">
                 {title}
@@ -220,9 +171,7 @@ export function HeroShowcase({ items }: { items: AnimeSummary[] }) {
               <div className="flex flex-wrap items-center gap-3">
                 <Link
                   to={`/watch/${current.slug}/1`}
-                  onMouseEnter={() => prefetchRoute(`/watch/${current.slug}/1`)}
-                  onClick={dismissFirstVisit}
-                  className="av-btn-press inline-flex items-center gap-2 rounded-lg bg-[#7C5CFF] hover:bg-[#9B87FF] px-5 py-2.5 min-h-[44px] text-sm font-semibold text-white whitespace-nowrap shrink-0 shadow-lg shadow-[#7C5CFF]/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
+                  className="av-btn-press inline-flex items-center gap-2 rounded-lg bg-[#7C5CFF] hover:bg-[#9B87FF] px-5 py-2.5 text-sm font-semibold text-white whitespace-nowrap shrink-0 shadow-lg shadow-[#7C5CFF]/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
                 >
                   <Play className="h-4 w-4 fill-current" />
                   Watch Now
@@ -230,22 +179,17 @@ export function HeroShowcase({ items }: { items: AnimeSummary[] }) {
 
                 <Link
                   to={`/anime/${current.slug}`}
-                  onMouseEnter={() => prefetchRoute(`/anime/${current.slug}`)}
-                  onClick={dismissFirstVisit}
-                  className="av-btn-press inline-flex items-center gap-2 rounded-lg border border-white/[0.14] bg-[#171722]/75 px-4 py-2.5 min-h-[44px] text-sm font-medium text-[#F5F3FF] backdrop-blur-md hover:bg-[#20202D] hover:border-[#9B87FF]/50 whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
+                  className="av-btn-press inline-flex items-center gap-2 rounded-lg border border-white/[0.14] bg-[#171722]/75 px-4 py-2.5 text-sm font-medium text-[#F5F3FF] backdrop-blur-md hover:bg-[#20202D] hover:border-[#9B87FF]/50 whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
                 >
                   <Info className="h-4 w-4" />
-                  Details
+                  Explore Details
                 </Link>
 
                 {hasTrailer && (
                   <button
                     type="button"
-                    onClick={() => {
-                      dismissFirstVisit();
-                      setTrailerOpen(true);
-                    }}
-                    className="av-btn-press inline-flex items-center gap-2 rounded-lg border border-white/[0.14] bg-[#171722]/75 px-4 py-2.5 min-h-[44px] text-sm font-medium text-[#F5F3FF] backdrop-blur-md hover:bg-[#20202D] hover:border-[#9B87FF]/50 whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
+                    onClick={() => setTrailerOpen(true)}
+                    className="av-btn-press inline-flex items-center gap-2 rounded-lg border border-white/[0.14] bg-[#171722]/75 px-4 py-2.5 text-sm font-medium text-[#F5F3FF] backdrop-blur-md hover:bg-[#20202D] hover:border-[#9B87FF]/50 whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
                   >
                     <Youtube className="h-4 w-4 text-[#9B87FF]" />
                     Trailer
@@ -254,18 +198,17 @@ export function HeroShowcase({ items }: { items: AnimeSummary[] }) {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    dismissFirstVisit();
-                    void upsertWatchlist({
+                  onClick={() =>
+                    upsertWatchlist({
                       anilistId: current.id,
                       animeTitle: title,
                       animeSlug: current.slug,
                       coverImage: current.coverImage?.large || current.coverImage?.extraLarge,
                       totalEpisodes: current.episodes,
                       status: saved ? saved.status : 'PLAN_TO_WATCH',
-                    });
-                  }}
-                  className="av-btn-press inline-flex items-center gap-2 rounded-lg border border-white/[0.14] bg-[#171722]/75 px-3.5 py-2.5 min-h-[44px] text-sm font-medium text-[#F5F3FF] backdrop-blur-md hover:bg-[#20202D] hover:border-[#9B87FF]/50 whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
+                    })
+                  }
+                  className="av-btn-press inline-flex items-center gap-2 rounded-lg border border-white/[0.14] bg-[#171722]/75 px-3.5 py-2.5 text-sm font-medium text-[#F5F3FF] backdrop-blur-md hover:bg-[#20202D] hover:border-[#9B87FF]/50 whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
                   aria-label={saved ? 'In Watchlist' : 'Add to Watchlist'}
                 >
                   {saved ? (
@@ -280,7 +223,7 @@ export function HeroShowcase({ items }: { items: AnimeSummary[] }) {
           </div>
 
           {slides.length > 1 && (
-            <div className="flex items-center gap-2.5 self-start lg:self-end">
+            <div className="flex items-center gap-3 self-start lg:self-end">
               <div className="flex items-center gap-1.5 mr-1">
                 {slides.map((slide, sIdx) => (
                   <button
@@ -289,7 +232,7 @@ export function HeroShowcase({ items }: { items: AnimeSummary[] }) {
                     onClick={() => setIndex(sIdx)}
                     aria-label={`View spotlight ${sIdx + 1}`}
                     aria-pressed={sIdx === index}
-                    className={`h-2 rounded-full transition-all duration-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF] ${
+                    className={`h-1.5 rounded-full transition-all duration-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF] ${
                       sIdx === index ? 'w-7 bg-[#9B87FF]' : 'w-2 bg-white/25 hover:bg-white/50'
                     }`}
                   />
@@ -297,19 +240,9 @@ export function HeroShowcase({ items }: { items: AnimeSummary[] }) {
               </div>
               <button
                 type="button"
-                onClick={() => setUserPaused((p) => !p)}
-                aria-pressed={userPaused}
-                aria-label={userPaused ? 'Resume spotlight carousel' : 'Pause spotlight carousel'}
-                title={userPaused ? 'Resume carousel' : 'Pause carousel'}
-                className="av-btn-press h-11 w-11 sm:h-9 sm:w-9 rounded-lg border border-white/[0.12] bg-[#11111B]/75 text-[#F5F3FF] hover:bg-[#20202D] hover:border-[#9B87FF]/50 flex items-center justify-center backdrop-blur-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
-              >
-                {userPaused ? <Play className="h-3.5 w-3.5 fill-current" /> : <Pause className="h-3.5 w-3.5" />}
-              </button>
-              <button
-                type="button"
                 onClick={() => setIndex((prev) => (prev - 1 + slides.length) % slides.length)}
                 aria-label="Previous featured anime"
-                className="av-btn-press h-11 w-11 sm:h-9 sm:w-9 rounded-lg border border-white/[0.12] bg-[#11111B]/75 text-[#F5F3FF] hover:bg-[#20202D] hover:border-[#9B87FF]/50 flex items-center justify-center backdrop-blur-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
+                className="av-btn-press h-10 w-10 sm:h-9 sm:w-9 rounded-lg border border-white/[0.12] bg-[#11111B]/75 text-[#F5F3FF] hover:bg-[#20202D] hover:border-[#9B87FF]/50 flex items-center justify-center backdrop-blur-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
@@ -317,7 +250,7 @@ export function HeroShowcase({ items }: { items: AnimeSummary[] }) {
                 type="button"
                 onClick={() => setIndex((prev) => (prev + 1) % slides.length)}
                 aria-label="Next featured anime"
-                className="av-btn-press h-11 w-11 sm:h-9 sm:w-9 rounded-lg border border-white/[0.12] bg-[#11111B]/75 text-[#F5F3FF] hover:bg-[#20202D] hover:border-[#9B87FF]/50 flex items-center justify-center backdrop-blur-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
+                className="av-btn-press h-10 w-10 sm:h-9 sm:w-9 rounded-lg border border-white/[0.12] bg-[#11111B]/75 text-[#F5F3FF] hover:bg-[#20202D] hover:border-[#9B87FF]/50 flex items-center justify-center backdrop-blur-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>

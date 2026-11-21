@@ -12,7 +12,6 @@ import {
   formatTimeAgo,
   stripHtml,
 } from '../../utils/formatters.ts';
-import { prefetchRoute } from '../../utils/prefetchRoute.ts';
 import { useLibrary } from '../../context/LibraryContext.tsx';
 import { useQuickView } from '../../context/QuickViewContext.tsx';
 import { usePlaybackCapabilities } from '../../hooks/usePlaybackCapabilities.ts';
@@ -40,11 +39,6 @@ export function AnimeCard({ anime, showQuickWatch = true }: AnimeCardProps) {
       ? confirmedTracks.map((t) => t.toUpperCase()).join('/')
       : null;
 
-  const isRecentEp =
-    typeof anime.airingAt === 'number' &&
-    Date.now() / 1000 - anime.airingAt < 48 * 3600 &&
-    anime.airingAt <= Date.now() / 1000;
-
   const handleBookmark = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -64,21 +58,15 @@ export function AnimeCard({ anime, showQuickWatch = true }: AnimeCardProps) {
     navigate(`/watch/${anime.slug}/1`);
   };
 
-  const detailsPath = `/anime/${anime.slug}`;
-
   return (
     <article className="group flex flex-col">
       <div className="relative aspect-[3/4] w-full rounded-xl shadow-sm transition-[transform,box-shadow] duration-200 ease-out md:group-hover:-translate-y-1.5 group-hover:shadow-[0_16px_32px_-12px_rgba(124,92,255,0.34)]">
         <Link
-          to={detailsPath}
-          onMouseEnter={() => prefetchRoute(detailsPath)}
+          to={`/anime/${anime.slug}`}
           className="relative block h-full w-full overflow-hidden rounded-xl bg-zinc-200 dark:bg-[#171722] border border-zinc-200/80 dark:border-white/[0.08] group-hover:border-[#9B87FF]/70 transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
         >
           <SafeImage
-            src={anime.coverImage?.large || anime.coverImage?.medium || anime.coverImage?.extraLarge}
-            sizes="(max-width: 640px) 45vw, (max-width: 1024px) 22vw, 220px"
-            width={300}
-            height={400}
+            src={anime.coverImage?.extraLarge || anime.coverImage?.large || anime.coverImage?.medium}
             alt={title}
             fallbackLabel={title}
             loading="lazy"
@@ -90,7 +78,7 @@ export function AnimeCard({ anime, showQuickWatch = true }: AnimeCardProps) {
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#09090F] via-[#09090F]/88 to-[#09090F]/35 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200" />
 
           {/* Quick View + Bookmark Actions (always reachable on touch screens via .av-touch-actions) */}
-          <div className="av-touch-actions absolute top-2 right-2 z-10 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200">
+          <div className="av-touch-actions absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200">
             <button
               type="button"
               onClick={(e) => {
@@ -100,7 +88,7 @@ export function AnimeCard({ anime, showQuickWatch = true }: AnimeCardProps) {
               }}
               aria-label={`Quick view ${title}`}
               title="Quick View"
-              className="av-btn-press h-11 w-11 sm:h-8 sm:w-8 rounded-lg flex items-center justify-center backdrop-blur-md bg-[#09090F]/75 text-[#F5F3FF] border border-white/15 hover:bg-[#7C5CFF] transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#9B87FF]"
+              className="av-btn-press h-9 w-9 sm:h-8 sm:w-8 rounded-lg flex items-center justify-center backdrop-blur-md bg-[#09090F]/75 text-[#F5F3FF] border border-white/15 hover:bg-[#7C5CFF] transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#9B87FF]"
             >
               <Eye className="h-3.5 w-3.5" />
             </button>
@@ -109,7 +97,7 @@ export function AnimeCard({ anime, showQuickWatch = true }: AnimeCardProps) {
               onClick={handleBookmark}
               aria-label={inWatchlist ? `Saved ${title} in watchlist` : `Add ${title} to watchlist`}
               title={inWatchlist ? 'In Watchlist' : 'Add to Watchlist'}
-              className={`av-btn-press h-11 w-11 sm:h-8 sm:w-8 rounded-lg flex items-center justify-center backdrop-blur-md transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#9B87FF] ${
+              className={`av-btn-press h-9 w-9 sm:h-8 sm:w-8 rounded-lg flex items-center justify-center backdrop-blur-md transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#9B87FF] ${
                 inWatchlist
                   ? 'bg-[#7C5CFF] text-white'
                   : 'bg-[#09090F]/75 text-[#F5F3FF] border border-white/15 hover:bg-[#7C5CFF]'
@@ -192,8 +180,7 @@ export function AnimeCard({ anime, showQuickWatch = true }: AnimeCardProps) {
 
       <div className="mt-2.5 flex flex-col gap-0.5 min-w-0">
         <Link
-          to={detailsPath}
-          onMouseEnter={() => prefetchRoute(detailsPath)}
+          to={`/anime/${anime.slug}`}
           className="text-sm font-semibold leading-snug text-zinc-900 dark:text-[#F5F3FF] line-clamp-2 hover:text-[#7C5CFF] dark:hover:text-[#9B87FF] transition-colors"
         >
           {title}
@@ -202,9 +189,7 @@ export function AnimeCard({ anime, showQuickWatch = true }: AnimeCardProps) {
         <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-[#A5A1B5] truncate tabular-nums">
           {anime.airingAt ? (
             <>
-              <span className="text-[#7C5CFF] dark:text-[#9B87FF] font-medium">
-                {formatTimeAgo(anime.airingAt)}
-              </span>
+              <span className="text-[#7C5CFF] dark:text-[#9B87FF] font-medium">{formatTimeAgo(anime.airingAt)}</span>
               <span aria-hidden="true">·</span>
             </>
           ) : anime.format === 'MOVIE' && anime.startDate?.year ? (
@@ -223,11 +208,7 @@ export function AnimeCard({ anime, showQuickWatch = true }: AnimeCardProps) {
           <span>{formatStatus(anime.status)}</span>
         </div>
 
-        {(typeof anime.malScore === 'number' ||
-          anime.averageScore ||
-          confirmedAudioLabel ||
-          inWatchlist ||
-          isRecentEp) && (
+        {(typeof anime.malScore === 'number' || anime.averageScore || confirmedAudioLabel) && (
           <div className="flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-[#A5A1B5] truncate tabular-nums">
             {typeof anime.malScore === 'number' ? (
               <span className="font-mono font-medium text-[#7C5CFF] dark:text-[#9B87FF]">
@@ -242,18 +223,6 @@ export function AnimeCard({ anime, showQuickWatch = true }: AnimeCardProps) {
               <span aria-hidden="true">·</span>
             )}
             {confirmedAudioLabel && <span>{confirmedAudioLabel}</span>}
-            {isRecentEp && (
-              <>
-                <span aria-hidden="true">·</span>
-                <span className="text-emerald-600 dark:text-emerald-400 font-medium">New Ep</span>
-              </>
-            )}
-            {inWatchlist && (
-              <>
-                <span aria-hidden="true">·</span>
-                <span className="text-[#7C5CFF] dark:text-[#9B87FF] font-medium">In List</span>
-              </>
-            )}
           </div>
         )}
       </div>

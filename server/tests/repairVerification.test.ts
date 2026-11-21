@@ -43,27 +43,6 @@ describe('AniVerve Complete API, Episode Discovery & Streaming Repair Verificati
     originalYenime = await dbGet<StreamingProvider>('anime_providers', 'yenime');
     originalAniEmbed = await dbGet<StreamingProvider>('anime_providers', 'aniembed');
 
-    if (originalYenime) {
-      await dbSet('anime_providers', 'yenime', {
-        ...originalYenime,
-        isEnabled: true,
-        licenseVerified: true,
-        documentedPermission: true,
-        embeddingAllowed: true,
-        verificationNotes: 'Authorized automated integration test configuration',
-      });
-    }
-    if (originalAniEmbed) {
-      await dbSet('anime_providers', 'aniembed', {
-        ...originalAniEmbed,
-        isEnabled: true,
-        licenseVerified: true,
-        documentedPermission: true,
-        embeddingAllowed: true,
-        verificationNotes: 'Authorized automated integration test configuration',
-      });
-    }
-
     const app = createApp();
     await new Promise<void>((resolve) => {
       expressServer = app.listen(0, '127.0.0.1', () => {
@@ -109,9 +88,8 @@ describe('AniVerve Complete API, Episode Discovery & Streaming Repair Verificati
     assert.equal(healthJson.anilistId, 154587);
   });
 
-  it('Scenario 2 & 3: YenimeAdapter uses AniList ID for player URLs while Yenime API supports failover cleanly', async () => {
-    const activeYenime = await dbGet<StreamingProvider>('anime_providers', 'yenime');
-    const adapter = new YenimeAdapter(activeYenime || originalYenime!);
+  it('Scenario 2 & 3: YenimeAdapter uses AniList ID for player URLs while Yenime API supports failover cleanly', () => {
+    const adapter = new YenimeAdapter(originalYenime!);
     const built = adapter.buildEmbedUrl({
       anilistId: 154587,
       malId: 52991,

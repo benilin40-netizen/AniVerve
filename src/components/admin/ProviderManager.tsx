@@ -573,7 +573,7 @@ export function ProviderManager({ providers, telemetry, onReload }: ProviderMana
         </div>
       </div>
 
-      {/* Live Iframe Initialization Preview Box */}
+      {/* Live Iframe Initialization Preview Box (NO sandbox attribute) */}
       {iframePreview && (
         <div className="rounded-2xl border border-[#9B87FF]/40 bg-white dark:bg-[#171722] p-4 space-y-3">
           <div className="flex items-center justify-between gap-3 text-xs">
@@ -606,7 +606,6 @@ export function ProviderManager({ providers, telemetry, onReload }: ProviderMana
               src={iframePreview.url}
               title={`Admin Test Frame — ${iframePreview.name}`}
               className="h-full w-full border-0"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
               allow="autoplay; fullscreen; picture-in-picture; encrypted-media; accelerometer; gyroscope"
               allowFullScreen
               referrerPolicy="origin"

@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
-import { requireAuth, requireUserCsrf, type AuthenticatedRequest } from '../middleware/authMiddleware.ts';
+import { requireAuth, type AuthenticatedRequest } from '../middleware/authMiddleware.ts';
 import { dbDelete, dbGet, dbList, dbSet } from '../services/db.ts';
-import { exploreAnime, getAnimeDetails } from '../services/anilistService.ts';
+import { getAnimeDetails } from '../services/anilistService.ts';
 import {
   dismissUserNotifications,
   getUserWatchlistNotifications,
@@ -10,18 +10,6 @@ import {
   updateUserNotificationPreferences,
 } from '../services/notificationService.ts';
 import { buildUserUniverseSummary, submitFaceOffVote } from '../services/universeService.ts';
-import {
-  favoriteToggleSchema,
-  reminderCreateSchema,
-  userCollectionCreateSchema,
-  userCollectionPatchSchema,
-  userPreferencesPatchSchema,
-  userRatingSchema,
-  validateBody,
-  watchHistorySchema,
-  watchlistUpsertSchema,
-} from '../validation/schemas.ts';
-import { z } from 'zod';
 import type {
   FavoriteItem,
   PremiereReminder,
@@ -35,7 +23,6 @@ import type {
 
 const router = Router();
 router.use(requireAuth);
-router.use(requireUserCsrf);
 
 const VALID_WATCH_STATUSES: WatchStatus[] = [
   'WATCHING',
@@ -71,7 +58,7 @@ router.get('/library', async (req: AuthenticatedRequest, res) => {
   res.json({ watchlist, favorites, watchHistory, ratings });
 });
 
-router.post('/watchlist', validateBody(watchlistUpsertSchema), async (req: AuthenticatedRequest, res) => {
+router.post('/watchlist', async (req: AuthenticatedRequest, res) => {
   const userId = req.authUser!.id;
   const { anilistId, animeTitle, animeSlug, coverImage, totalEpisodes, status, episodesWatched, notes } =
     req.body || {};
@@ -116,7 +103,7 @@ router.delete('/watchlist/:anilistId', async (req: AuthenticatedRequest, res) =>
   res.json({ ok: true });
 });
 
-router.post('/favorites', validateBody(favoriteToggleSchema), async (req: AuthenticatedRequest, res) => {
+router.post('/favorites', async (req: AuthenticatedRequest, res) => {
   const userId = req.authUser!.id;
   const { anilistId, animeTitle, animeSlug, coverImage } = req.body || {};
   const numId = Number(anilistId);
@@ -154,7 +141,7 @@ router.delete('/favorites/:anilistId', async (req: AuthenticatedRequest, res) =>
   res.json({ ok: true });
 });
 
-router.post('/history', validateBody(watchHistorySchema), async (req: AuthenticatedRequest, res) => {
+router.post('/history', async (req: AuthenticatedRequest, res) => {
   const userId = req.authUser!.id;
   const {
     anilistId,
@@ -197,7 +184,7 @@ router.post('/history', validateBody(watchHistorySchema), async (req: Authentica
   res.json({ item });
 });
 
-router.post('/rating', validateBody(userRatingSchema), async (req: AuthenticatedRequest, res) => {
+router.post('/rating', async (req: AuthenticatedRequest, res) => {
   const userId = req.authUser!.id;
   const { anilistId, score, review } = req.body || {};
   const numId = Number(anilistId);
@@ -246,7 +233,7 @@ router.get('/reminders', async (req: AuthenticatedRequest, res) => {
   res.json({ reminders });
 });
 
-router.post('/reminders', validateBody(reminderCreateSchema), async (req: AuthenticatedRequest, res) => {
+router.post('/reminders', async (req: AuthenticatedRequest, res) => {
   const userId = req.authUser!.id;
   const { anilistId, animeTitle, animeSlug, coverImage, airingAt, episode } = req.body || {};
   const numId = Number(anilistId);
@@ -298,7 +285,7 @@ router.get('/collections', async (req: AuthenticatedRequest, res) => {
   res.json({ collections: hydrated });
 });
 
-router.post('/collections', validateBody(userCollectionCreateSchema), async (req: AuthenticatedRequest, res) => {
+router.post('/collections', async (req: AuthenticatedRequest, res) => {
   const userId = req.authUser!.id;
   const { title, description, anilistIds, isPrivate } = req.body || {};
   const cleanTitle = typeof title === 'string' ? title.trim().slice(0, 120) : '';
@@ -324,7 +311,7 @@ router.post('/collections', validateBody(userCollectionCreateSchema), async (req
   res.status(201).json({ collection });
 });
 
-router.patch('/collections/:id', validateBody(userCollectionPatchSchema), async (req: AuthenticatedRequest, res) => {
+router.patch('/collections/:id', async (req: AuthenticatedRequest, res) => {
   const userId = req.authUser!.id;
   const existing = await dbGet<UserCollection>('user_collections', req.params.id);
   if (!existing || existing.userId !== userId) {
@@ -376,7 +363,7 @@ router.get('/preferences', async (req: AuthenticatedRequest, res) => {
   res.json({ preferences: { ...DEFAULT_PREFERENCES, ...(saved || {}) } });
 });
 
-router.patch('/preferences', validateBody(userPreferencesPatchSchema), async (req: AuthenticatedRequest, res) => {
+router.patch('/preferences', async (req: AuthenticatedRequest, res) => {
   const userId = req.authUser!.id;
   const current = (await dbGet<UniversePreferences>('user_preferences', userId)) || DEFAULT_PREFERENCES;
   const body = req.body || {};
@@ -500,140 +487,6 @@ router.patch('/notifications/preferences', async (req: AuthenticatedRequest, res
   } catch (err) {
     res.status(500).json({
       error: err instanceof Error ? err.message : 'Failed to update notification preferences.',
-    });
-  }
-});
-
-const importListSchema = z.object({
-  source: z.enum(['anilist-username', 'mal-titles', 'onboarding-genres']).default('mal-titles'),
-  anilistUsername: z.string().trim().max(64).optional(),
-  titles: z.array(z.string().trim().min(1).max(200)).max(30).optional(),
-  genres: z.array(z.string().trim().min(1).max(40)).max(8).optional(),
-});
-
-router.post('/import', validateBody(importListSchema), async (req: AuthenticatedRequest, res) => {
-  const userId = req.authUser!.id;
-  const { source, anilistUsername, titles, genres } = req.body;
-  const imported: WatchlistItem[] = [];
-  const now = new Date().toISOString();
-
-  try {
-    if (source === 'anilist-username' && anilistUsername) {
-      const gqlRes = await fetch('https://graphql.anilist.co', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          query: `query ($userName: String) {
-            MediaListCollection(userName: $userName, type: ANIME, chunk: 1, perChunk: 25) {
-              lists {
-                status
-                entries {
-                  progress
-                  media {
-                    id
-                    episodes
-                    coverImage { large extraLarge }
-                    title { romaji english }
-                  }
-                }
-              }
-            }
-          }`,
-          variables: { userName: anilistUsername },
-        }),
-      });
-      const json = (await gqlRes.json()) as any;
-      const lists = json?.data?.MediaListCollection?.lists || [];
-      const mapStatus = (s: string): WatchStatus => {
-        if (s === 'CURRENT') return 'WATCHING';
-        if (s === 'COMPLETED') return 'COMPLETED';
-        if (s === 'PAUSED') return 'ON_HOLD';
-        if (s === 'DROPPED') return 'DROPPED';
-        return 'PLAN_TO_WATCH';
-      };
-
-      for (const l of lists) {
-        const mappedStatus = mapStatus(String(l.status || 'PLANNING'));
-        for (const entry of (l.entries || []).slice(0, 25)) {
-          if (imported.length >= 25) break;
-          const m = entry.media;
-          if (!m?.id) continue;
-          const title = m.title?.english || m.title?.romaji || `Anime #${m.id}`;
-          const docId = `${userId}_${m.id}`;
-          const item: WatchlistItem = {
-            id: docId,
-            userId,
-            anilistId: m.id,
-            animeTitle: title,
-            animeSlug: `${m.id}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60)}`,
-            coverImage: m.coverImage?.large || m.coverImage?.extraLarge || null,
-            totalEpisodes: m.episodes || null,
-            status: mappedStatus,
-            episodesWatched: Number(entry.progress || 0),
-            notes: `Imported from AniList (@${anilistUsername})`,
-            createdAt: now,
-            updatedAt: now,
-          };
-          await dbSet('watchlists', docId, item);
-          imported.push(item);
-        }
-      }
-    } else if (source === 'mal-titles' && Array.isArray(titles)) {
-      for (const rawTitle of titles.slice(0, 15)) {
-        const resSearch = await exploreAnime({ search: rawTitle, sort: 'SEARCH_MATCH', page: 1, perPage: 1 }).catch(
-          () => null
-        );
-        const m = resSearch?.media?.[0];
-        if (!m) continue;
-        const title = m.title.english || m.title.romaji || rawTitle;
-        const docId = `${userId}_${m.id}`;
-        const item: WatchlistItem = {
-          id: docId,
-          userId,
-          anilistId: m.id,
-          animeTitle: title,
-          animeSlug: m.slug,
-          coverImage: m.coverImage?.large || m.coverImage?.extraLarge || null,
-          totalEpisodes: m.episodes || null,
-          status: 'PLAN_TO_WATCH',
-          episodesWatched: 0,
-          notes: 'Imported list entry',
-          createdAt: now,
-          updatedAt: now,
-        };
-        await dbSet('watchlists', docId, item);
-        imported.push(item);
-      }
-    } else if (source === 'onboarding-genres' && Array.isArray(genres) && genres.length > 0) {
-      const explored = await exploreAnime({ genre: genres[0], sort: 'POPULARITY_DESC', page: 1, perPage: 6 });
-      for (const m of explored.media.slice(0, 4)) {
-        const title = m.title.english || m.title.romaji || `Anime #${m.id}`;
-        const docId = `${userId}_${m.id}`;
-        const existing = await dbGet<WatchlistItem>('watchlists', docId);
-        if (existing) continue;
-        const item: WatchlistItem = {
-          id: docId,
-          userId,
-          anilistId: m.id,
-          animeTitle: title,
-          animeSlug: m.slug,
-          coverImage: m.coverImage?.large || m.coverImage?.extraLarge || null,
-          totalEpisodes: m.episodes || null,
-          status: 'PLAN_TO_WATCH',
-          episodesWatched: 0,
-          notes: `Starter pick (${genres[0]})`,
-          createdAt: now,
-          updatedAt: now,
-        };
-        await dbSet('watchlists', docId, item);
-        imported.push(item);
-      }
-    }
-
-    return res.json({ importedCount: imported.length, items: imported });
-  } catch (err) {
-    return res.status(502).json({
-      error: err instanceof Error ? err.message : 'Unable to import watchlist items.',
     });
   }
 });

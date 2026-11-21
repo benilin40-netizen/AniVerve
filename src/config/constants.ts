@@ -1,8 +1,3 @@
-import fallbackAnimeBanner from '../assets/images/fallback_anime_banner.webp';
-import fallbackAnimeBanner640 from '../assets/images/fallback_anime_banner_640.webp';
-import fallbackNewsCover from '../assets/images/fallback_news_cover.webp';
-import fallbackNewsCover640 from '../assets/images/fallback_news_cover_640.webp';
-
 export const ANIME_GENRES = [
   'Action',
   'Adventure',
@@ -53,31 +48,8 @@ export const WATCH_STATUS_LABELS: Record<string, string> = {
   DROPPED: 'Dropped',
 };
 
-export const FALLBACK_BANNER_IMAGE = fallbackAnimeBanner;
-export const FALLBACK_BANNER_IMAGE_640 = fallbackAnimeBanner640;
-export const FALLBACK_NEWS_IMAGE = fallbackNewsCover;
-export const FALLBACK_NEWS_IMAGE_640 = fallbackNewsCover640;
-
-export const DESIGN_TOKENS = {
-  colors: {
-    bgPrimary: '#09090F',
-    bgSecondary: '#11111B',
-    bgCard: '#171722',
-    accentPrimary: '#7C5CFF',
-    accentLight: '#9B87FF',
-  },
-  motion: {
-    fastMs: 160,
-    baseMs: 240,
-    easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
-  },
-  layout: {
-    maxContainerPx: 1440,
-    minTapTargetPx: 44,
-  },
-} as const;
-
-export const LEGAL_LAST_UPDATED = 'November 2026';
+export const FALLBACK_BANNER_IMAGE = '/src/assets/images/fallback_anime_banner_1794694279692.jpg';
+export const FALLBACK_NEWS_IMAGE = '/src/assets/images/fallback_news_cover_1794694280417.jpg';
 
 export function getCurrentAnimeSeason(): { season: 'WINTER' | 'SPRING' | 'SUMMER' | 'FALL'; year: number } {
   const now = new Date();

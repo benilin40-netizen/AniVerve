@@ -13,8 +13,6 @@ import {
 import { getAnimeDetails } from '../services/anilistService.ts';
 import { getCached, setCached } from '../services/cacheService.ts';
 import { resolveEpisodeSources } from '../services/episodeDiscoveryService.ts';
-import { proxyUpstreamMedia } from '../services/hlsProxyService.ts';
-import { telemetryEventSchema, validateBody } from '../validation/schemas.ts';
 import type { ProviderTestResult } from '../../src/types/anime.ts';
 
 const router = Router();
@@ -253,9 +251,9 @@ router.get('/resolve', async (req, res) => {
   }
 });
 
-router.post('/telemetry', validateBody(telemetryEventSchema), async (req, res) => {
+router.post('/telemetry', async (req, res) => {
   try {
-    const { event, server, from, to, reason, anilistId, episode, latencyMs } = req.body;
+    const { event, server, from, to, reason, anilistId, episode, latencyMs } = req.body || {};
     if (event === 'init_success' && isCoreProviderKey(String(server || ''))) {
       await recordPlaybackSuccess(
         server as 'yenime' | 'aniembed',
@@ -292,34 +290,6 @@ router.post('/report-error', async (req, res) => {
     res.json({ ok: true });
   } catch {
     res.json({ ok: false });
-  }
-});
-
-router.get('/hls-proxy', async (req, res) => {
-  try {
-    const token = typeof req.query.token === 'string' ? req.query.token : '';
-    if (!token) {
-      return res.status(400).json({ error: 'Missing stream proxy token.' });
-    }
-    const range = typeof req.headers.range === 'string' ? req.headers.range : null;
-    const result = await proxyUpstreamMedia(token, range);
-    if (!result.ok || result.body === undefined) {
-      return res.status(result.status).json({ error: result.error || 'Stream proxy error.' });
-    }
-    res.setHeader('Content-Type', result.contentType);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Cache-Control', 'private, max-age=300');
-    if (result.contentRange) {
-      res.setHeader('Content-Range', result.contentRange);
-    }
-    if (result.acceptRanges) {
-      res.setHeader('Accept-Ranges', result.acceptRanges);
-    }
-    return res.status(result.status).send(result.body);
-  } catch (err) {
-    return res.status(502).json({
-      error: err instanceof Error ? err.message : 'Failed to proxy stream segment.',
-    });
   }
 });
 

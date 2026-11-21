@@ -2,26 +2,19 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
-  Bookmark,
   Building2,
-  CalendarClock,
   Clock,
-  Compass,
   Film,
   FolderHeart,
-  LayoutGrid,
   Loader2,
   Search,
   Sparkles,
   Trash2,
   UserCircle2,
-  Wand2,
   X,
 } from 'lucide-react';
-import type { AnimeSummary, UniversalSearchResult } from '../../types/anime.ts';
-import { ANIME_GENRES } from '../../config/constants.ts';
+import type { UniversalSearchResult } from '../../types/anime.ts';
 import { useDebounce } from '../../hooks/useDebounce.ts';
-import { useFocusTrap } from '../../hooks/useFocusTrap.ts';
 import { universeService } from '../../services/universeService.ts';
 import { getPrimaryTitle } from '../../utils/slug.ts';
 import { formatFormat, formatScore } from '../../utils/formatters.ts';
@@ -33,14 +26,6 @@ interface SearchOverlayProps {
 }
 
 const HISTORY_STORAGE_KEY = 'aniverve-search-history-v2';
-
-const QUICK_JUMPS = [
-  { label: 'Browse Full Catalog', to: '/explore', icon: Compass },
-  { label: 'Airing Schedule', to: '/schedule', icon: CalendarClock },
-  { label: 'Anime Movies', to: '/movies', icon: Film },
-  { label: 'Genres', to: '/genres', icon: LayoutGrid },
-  { label: 'My Watchlist', to: '/watchlist', icon: Bookmark },
-] as const;
 
 function loadSearchHistory(): string[] {
   try {
@@ -65,36 +50,6 @@ function saveSearchHistory(next: string[]) {
   }
 }
 
-function levenshtein(a: string, b: string): number {
-  const m = a.length;
-  const n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0) as number[]);
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
-    }
-  }
-  return dp[m][n];
-}
-
-function findTypoSuggestions(query: string, history: string[]): string[] {
-  const clean = query.trim().toLowerCase();
-  if (clean.length < 3) return [];
-  const candidates = Array.from(new Set([...ANIME_GENRES, ...history]));
-  return candidates
-    .map((term) => ({
-      term,
-      dist: levenshtein(clean, term.toLowerCase()),
-    }))
-    .filter((entry) => entry.dist > 0 && entry.dist <= Math.max(2, Math.floor(clean.length / 2)))
-    .sort((a, b) => a.dist - b.dist)
-    .slice(0, 3)
-    .map((entry) => entry.term);
-}
-
 interface FlatActionItem {
   id: string;
   label: string;
@@ -109,17 +64,9 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
   const [history, setHistory] = useState<string[]>(() => loadSearchHistory());
   const [activeIndex, setActiveIndex] = useState(-1);
 
-  const [aiMode, setAiMode] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiExplanation, setAiExplanation] = useState<string | null>(null);
-  const [aiResults, setAiResults] = useState<AnimeSummary[]>([]);
-
-  const dialogRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const debounced = useDebounce(query, 240);
   const navigate = useNavigate();
-
-  useFocusTrap(dialogRef, open, onClose);
 
   const recordHistory = useCallback((term: string) => {
     const clean = term.trim();
@@ -146,18 +93,14 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
     } else {
       setQuery('');
       setResults(null);
-      setAiResults([]);
-      setAiExplanation(null);
       setActiveIndex(-1);
     }
   }, [open]);
 
   useEffect(() => {
-    if (!open || !debounced.trim() || aiMode) {
-      if (!aiMode) {
-        setResults(null);
-        setError(null);
-      }
+    if (!open || !debounced.trim()) {
+      setResults(null);
+      setError(null);
       return;
     }
 
@@ -179,33 +122,9 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
       .finally(() => setLoading(false));
 
     return () => controller.abort();
-  }, [debounced, open, aiMode]);
-
-  const runAiSearch = useCallback(async (rawQuery: string) => {
-    const clean = rawQuery.trim();
-    if (!clean) return;
-    setAiLoading(true);
-    setError(null);
-    try {
-      const res = await universeService.aiNlSearch(clean);
-      setAiExplanation(res.filters.explanation);
-      setAiResults(res.results || []);
-      recordHistory(clean);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'AI natural-language search failed.');
-    } finally {
-      setAiLoading(false);
-    }
-  }, [recordHistory]);
+  }, [debounced, open]);
 
   const flatActions = useMemo<FlatActionItem[]>(() => {
-    if (aiMode && aiResults.length > 0) {
-      return aiResults.slice(0, 8).map((a) => ({
-        id: `ai:${a.id}`,
-        label: getPrimaryTitle(a.title),
-        to: `/anime/${a.slug}`,
-      }));
-    }
     if (!results) return [];
     const list: FlatActionItem[] = [];
     for (const a of results.anime) {
@@ -247,7 +166,7 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
       });
     }
     return list;
-  }, [results, aiMode, aiResults]);
+  }, [results]);
 
   const goTo = useCallback(
     (to: string, searchLabel?: string) => {
@@ -269,7 +188,9 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowDown' && flatActions.length > 0) {
+      if (e.key === 'Escape') {
+        onClose();
+      } else if (e.key === 'ArrowDown' && flatActions.length > 0) {
         e.preventDefault();
         setActiveIndex((i) => (i + 1) % flatActions.length);
       } else if (e.key === 'ArrowUp' && flatActions.length > 0) {
@@ -282,19 +203,13 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, flatActions, activeIndex, goTo, query]);
-
-  const typoSuggestions = useMemo(() => findTypoSuggestions(query, history), [query, history]);
+  }, [open, onClose, flatActions, activeIndex, goTo, query]);
 
   if (!open) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
-    if (aiMode) {
-      void runAiSearch(query);
-      return;
-    }
     recordHistory(query.trim());
     onClose();
     navigate(`/explore?search=${encodeURIComponent(query.trim())}`);
@@ -319,17 +234,16 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
       className="av-backdrop-enter fixed inset-0 z-50 flex items-start justify-center bg-[#09090F]/80 p-4 pt-12 sm:pt-20 backdrop-blur-md"
       role="dialog"
       aria-modal="true"
-      aria-label="AniVerve Command Palette"
+      aria-label="Universal AniVerve Search"
       onClick={onClose}
     >
       <div
-        ref={dialogRef}
         className="av-modal-enter w-full max-w-3xl rounded-2xl border border-zinc-200 dark:border-white/[0.1] bg-white dark:bg-[#171722] shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <form
           onSubmit={handleSubmit}
-          className="flex items-center gap-2.5 border-b border-zinc-200 dark:border-white/[0.08] px-4 py-3.5"
+          className="flex items-center gap-3 border-b border-zinc-200 dark:border-white/[0.08] px-4 py-3.5"
         >
           <Search className="h-5 w-5 text-[#9B87FF] shrink-0" />
           <input
@@ -337,40 +251,17 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={
-              aiMode
-                ? 'Ask e.g. "short psychological thrillers like Death Note"...'
-                : 'Search anime, characters, studios, genres, or jump to a page...'
-            }
+            placeholder="Search anime, characters, studios, genres, or collections..."
             className="flex-1 bg-transparent text-sm sm:text-base text-zinc-900 dark:text-[#F5F3FF] placeholder:text-zinc-400 dark:placeholder:text-[#A5A1B5] focus:outline-none"
           />
-          <button
-            type="button"
-            onClick={() => {
-              const next = !aiMode;
-              setAiMode(next);
-              if (next && query.trim()) {
-                void runAiSearch(query);
-              }
-            }}
-            aria-pressed={aiMode}
-            className={`av-btn-press inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium shrink-0 transition-colors ${
-              aiMode
-                ? 'border-[#7C5CFF] bg-[#7C5CFF] text-white'
-                : 'border-zinc-200 dark:border-white/[0.1] text-zinc-600 dark:text-[#A5A1B5] hover:border-[#9B87FF]'
-            }`}
-          >
-            <Wand2 className="h-3.5 w-3.5" />
-            Ask AI
-          </button>
-          {(loading || aiLoading) && <Loader2 className="h-4 w-4 animate-spin text-[#9B87FF]" />}
+          {loading && <Loader2 className="h-4 w-4 animate-spin text-[#9B87FF]" />}
           <span className="hidden sm:inline font-mono text-[10px] text-zinc-400 dark:text-[#A5A1B5] border border-zinc-200 dark:border-white/[0.08] rounded px-1.5 py-0.5">
             ESC
           </span>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close command palette"
+            aria-label="Close search"
             className="av-btn-press rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-[#20202D] hover:text-zinc-900 dark:hover:text-[#F5F3FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
           >
             <X className="h-4 w-4" />
@@ -379,30 +270,7 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
 
         <div className="max-h-[68vh] overflow-y-auto p-4 space-y-5">
           {!query.trim() && (
-            <div className="space-y-5">
-              {/* Quick Navigation Jumps */}
-              <div className="space-y-2">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-[#A5A1B5]">
-                  Quick Navigation
-                </span>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                  {QUICK_JUMPS.map((jump) => {
-                    const Icon = jump.icon;
-                    return (
-                      <button
-                        key={jump.to}
-                        type="button"
-                        onClick={() => goTo(jump.to)}
-                        className="flex items-center gap-2 rounded-xl border border-zinc-200 dark:border-white/[0.08] bg-zinc-50 dark:bg-[#11111B] px-3 py-2 text-xs font-medium text-zinc-800 dark:text-[#F5F3FF] hover:border-[#9B87FF] transition-colors text-left"
-                      >
-                        <Icon className="h-3.5 w-3.5 text-[#9B87FF] shrink-0" />
-                        <span className="truncate">{jump.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
+            <div className="space-y-4">
               {history.length > 0 ? (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -433,8 +301,9 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
                   </div>
                 </div>
               ) : (
-                <p className="py-4 text-center text-xs text-zinc-500 dark:text-[#A5A1B5]">
-                  Search AniList titles, characters, studios, or switch to &quot;Ask AI&quot; for natural-language requests.
+                <p className="py-6 text-center text-xs text-zinc-500 dark:text-[#A5A1B5]">
+                  Search across AniList titles, favorite characters, animation studios, genres, and
+                  curated collections. Use Up/Down arrows and Enter to jump directly.
                 </p>
               )}
             </div>
@@ -442,83 +311,13 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
 
           {error && <p className="py-4 text-center text-xs text-rose-500">{error}</p>}
 
-          {aiMode && query.trim() && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs text-[#7C5CFF] dark:text-[#9B87FF] font-medium">
-                  {aiExplanation || 'Press Enter to match natural-language prompts against the live catalog.'}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void runAiSearch(query)}
-                  disabled={aiLoading}
-                  className="av-btn-press rounded-lg bg-[#7C5CFF] hover:bg-[#9B87FF] px-3 py-1.5 text-xs font-semibold text-white shrink-0"
-                >
-                  {aiLoading ? 'Searching...' : 'Run AI Search'}
-                </button>
-              </div>
-              {aiResults.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {aiResults.slice(0, 8).map((item, idx) => {
-                    const t = getPrimaryTitle(item.title);
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => goTo(`/anime/${item.slug}`, query)}
-                        className={`flex items-center gap-3 rounded-xl p-2 text-left transition-colors ${
-                          activeIndex === idx
-                            ? 'bg-[#7C5CFF]/20 border border-[#9B87FF]/40'
-                            : 'hover:bg-zinc-100 dark:hover:bg-[#20202D]'
-                        }`}
-                      >
-                        <SafeImage
-                          src={item.coverImage?.medium || item.coverImage?.large}
-                          alt={t}
-                          className="h-12 w-9 rounded-md object-cover shrink-0 bg-[#11111B]"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold text-zinc-900 dark:text-[#F5F3FF] truncate">
-                            {t}
-                          </p>
-                          <p className="text-[11px] text-zinc-500 dark:text-[#A5A1B5] truncate tabular-nums">
-                            {formatFormat(item.format)}
-                            {item.seasonYear ? ` · ${item.seasonYear}` : ''}
-                            {item.averageScore ? ` · ${formatScore(item.averageScore)}` : ''}
-                          </p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+          {query.trim() && !loading && !error && !hasAnyResults && (
+            <p className="py-8 text-center text-xs text-zinc-500 dark:text-[#A5A1B5]">
+              No matching anime, characters, studios, or collections found for "{query}".
+            </p>
           )}
 
-          {!aiMode && query.trim() && !loading && !error && !hasAnyResults && (
-            <div className="py-6 text-center space-y-3">
-              <p className="text-xs text-zinc-500 dark:text-[#A5A1B5]">
-                No matching anime, characters, studios, or collections found for &quot;{query}&quot;.
-              </p>
-              {typoSuggestions.length > 0 && (
-                <div className="flex flex-wrap items-center justify-center gap-2">
-                  <span className="text-[11px] text-zinc-400">Did you mean:</span>
-                  {typoSuggestions.map((sug) => (
-                    <button
-                      key={sug}
-                      type="button"
-                      onClick={() => setQuery(sug)}
-                      className="rounded-lg border border-[#9B87FF]/40 bg-[#7C5CFF]/10 px-2.5 py-1 text-xs font-medium text-[#7C5CFF] dark:text-[#9B87FF] hover:bg-[#7C5CFF]/20"
-                    >
-                      {sug}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {!aiMode && results && hasAnyResults && (
+          {results && hasAnyResults && (
             <div className="space-y-5">
               {/* Anime */}
               {results.anime.length > 0 && (
@@ -697,7 +496,7 @@ export function SearchOverlay({ open, onClose }: SearchOverlayProps) {
                 onClick={handleSubmit}
                 className="av-btn-press flex w-full items-center justify-center gap-1.5 rounded-xl border border-zinc-200 dark:border-white/[0.08] py-2.5 text-xs font-medium text-[#7C5CFF] dark:text-[#9B87FF] hover:bg-zinc-50 dark:hover:bg-[#20202D] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9B87FF]"
               >
-                Browse full filtered catalog for &quot;{query}&quot;
+                Browse full filtered catalog for "{query}"
                 <ArrowRight className="h-3.5 w-3.5" />
               </button>
             </div>

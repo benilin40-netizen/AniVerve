@@ -4,8 +4,6 @@ import {
   Award,
   Bell,
   CheckCircle2,
-  Download,
-  ExternalLink,
   EyeOff,
   FolderPlus,
   KeyRound,
@@ -42,7 +40,6 @@ import {
 import { SafeImage } from '../../components/common/SafeImage.tsx';
 import { EmptyState } from '../../components/common/EmptyState.tsx';
 import { AnimeCard } from '../../components/anime/AnimeCard.tsx';
-import { ListImporterModal } from '../../components/library/ListImporterModal.tsx';
 
 const VISUAL_THEMES: Array<{ id: UniverseVisualTheme; label: string; desc: string; swatch: string }> = [
   { id: 'midnight-violet', label: 'Midnight Violet', desc: 'Signature deep obsidian & violet aura', swatch: '#9B87FF' },
@@ -72,7 +69,6 @@ export function ProfilePage() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [sessions, setSessions] = useState<UserSessionInfo[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
 
   const [scheduleTz, setScheduleTz] = useState(() => getSavedScheduleTimezone());
   const [autoPlayDefault, setAutoPlayDefault] = useState(() => {
@@ -342,25 +338,6 @@ export function ProfilePage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {user && (
-            <button
-              type="button"
-              onClick={() => setImportOpen(true)}
-              className="av-btn-press inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-white/[0.08] px-3.5 py-2 text-xs font-medium text-zinc-700 dark:text-[#F5F3FF] hover:border-[#9B87FF]"
-            >
-              <Download className="h-3.5 w-3.5 text-[#9B87FF]" />
-              Import List
-            </button>
-          )}
-          {user && preferences.profilePublic && (
-            <Link
-              to={`/u/${encodeURIComponent(user.username)}`}
-              className="av-btn-press inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-white/[0.08] px-3.5 py-2 text-xs font-medium text-zinc-700 dark:text-[#F5F3FF] hover:border-[#9B87FF]"
-            >
-              <ExternalLink className="h-3.5 w-3.5 text-[#9B87FF]" />
-              Public Profile
-            </Link>
-          )}
           {isAdminAuthenticated && (
             <Link
               to="/admin"
@@ -1059,8 +1036,6 @@ export function ProfilePage() {
           </Link>
         </div>
       )}
-
-      <ListImporterModal open={importOpen} onClose={() => setImportOpen(false)} />
     </div>
   );
 }
