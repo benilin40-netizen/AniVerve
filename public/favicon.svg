@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" role="img" aria-label="AniVerve Favicon">
+  <defs>
+    <radialGradient id="avf-bg" cx="50%" cy="35%" r="75%">
+      <stop offset="0%" stop-color="#1A1730" />
+      <stop offset="100%" stop-color="#09090F" />
+    </radialGradient>
+    <linearGradient id="avf-a-grad" x1="28" y1="22" x2="100" y2="104" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#DDD6FE" />
+      <stop offset="45%" stop-color="#9B87FF" />
+      <stop offset="100%" stop-color="#7C5CFF" />
+    </linearGradient>
+    <linearGradient id="avf-orbit-front" x1="16" y1="88" x2="112" y2="42" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7C5CFF" />
+      <stop offset="50%" stop-color="#A78BFA" />
+      <stop offset="100%" stop-color="#F5F3FF" />
+    </linearGradient>
+  </defs>
+
+  <!-- Dark Obsidian App Tile -->
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="url(#avf-bg)" />
+  <rect x="3" y="3" width="122" height="122" rx="27" fill="none" stroke="#9B87FF" stroke-opacity="0.28" stroke-width="2" />
+
+  <!-- Subtle back orbital arc -->
+  <g transform="rotate(-24 64 66)">
+    <path
+      fill="none"
+      d="M 18 66 A 46 16.5 0 0 1 110 66"
+      stroke="#7C5CFF"
+      stroke-opacity="0.48"
+      stroke-width="7.5"
+      stroke-linecap="round"
+    />
+  </g>
+
+  <!-- Bold A silhouette scaled for high clarity at 16px/32px -->
+  <path
+    fill-rule="evenodd"
+    clip-rule="evenodd"
+    d="M 64 21 L 101 101 L 83 101 L 75 83 L 54 83 L 44 101 L 27 101 L 64 21 Z M 64 43.5 L 54 68 L 73 63 L 64 43.5 Z"
+    fill="url(#avf-a-grad)"
+  />
+
+  <!-- Foreground orbital sweep -->
+  <g transform="rotate(-24 64 66)">
+    <path
+      fill="none"
+      d="M 110 66 A 46 16.5 0 0 1 18 66"
+      stroke="url(#avf-orbit-front)"
+      stroke-width="8"
+      stroke-linecap="round"
+    />
+  </g>
+
+  <!-- Crisp 4-point sparkle star -->
+  <path
+    d="M 99 20 L 102 27 L 109 30 L 102 33 L 99 40 L 96 33 L 89 30 L 96 27 Z"
+    fill="#F5F3FF"
+  />
+</svg>

@@ -1,0 +1,8 @@
+{
+  "name": "AniVerve",
+  "description": "Anime discovery, live airing schedules, industry news, personal watchlists, and configurable streaming platform powered by AniList and MyAnimeList.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

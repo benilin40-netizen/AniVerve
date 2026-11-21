@@ -1,0 +1,233 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isVerified() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['ADMIN', 'SUPER_ADMIN'];
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'username', 'role', 'status', 'emailVerified']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
+             data.email is string && data.email.size() > 0 && data.email.size() <= 254 &&
+             data.username is string && data.username.size() >= 2 && data.username.size() <= 64 &&
+             data.role in ['USER', 'ADMIN', 'SUPER_ADMIN'] &&
+             data.status in ['ACTIVE', 'SUSPENDED'] &&
+             data.emailVerified is bool;
+    }
+
+    function isValidWatchlist(data) {
+      return data.keys().hasAll(['userId', 'anilistId', 'animeTitle', 'status']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.anilistId is number &&
+             data.animeTitle is string && data.animeTitle.size() > 0 && data.animeTitle.size() <= 300 &&
+             data.status in ['WATCHING', 'COMPLETED', 'PLAN_TO_WATCH', 'DROPPED', 'ON_HOLD'];
+    }
+
+    function isValidFavorite(data) {
+      return data.keys().hasAll(['userId', 'anilistId', 'animeTitle']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.anilistId is number &&
+             data.animeTitle is string && data.animeTitle.size() > 0 && data.animeTitle.size() <= 300;
+    }
+
+    function isValidWatchHistory(data) {
+      return data.keys().hasAll(['userId', 'anilistId', 'episodeNumber']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.anilistId is number &&
+             data.episodeNumber is number;
+    }
+
+    function isValidRating(data) {
+      return data.keys().hasAll(['userId', 'anilistId', 'score']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.anilistId is number &&
+             data.score is number && data.score >= 1 && data.score <= 10;
+    }
+
+    function isValidUserCollection(data) {
+      return data.keys().hasAll(['userId', 'title', 'anilistIds']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 120 &&
+             data.anilistIds is list;
+    }
+
+    function isValidPremiereReminder(data) {
+      return data.keys().hasAll(['userId', 'anilistId', 'animeTitle']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.anilistId is number &&
+             data.animeTitle is string && data.animeTitle.size() > 0 && data.animeTitle.size() <= 300;
+    }
+
+    function isValidFaceOffVote(data) {
+      return data.keys().hasAll(['userId', 'matchupId', 'winnerAnilistId']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.matchupId is string && data.matchupId.size() > 0 && data.matchupId.size() <= 128 &&
+             data.winnerAnilistId is number;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && isOwner(userId) && isValidUser(incoming()) &&
+                       incoming().uid == request.auth.uid &&
+                       incoming().role == 'USER' &&
+                       incoming().status == 'ACTIVE';
+      allow update: if isValidId(userId) && isValidUser(incoming()) && (
+        isAdmin() ||
+        (isOwner(userId) &&
+         incoming().uid == existing().uid &&
+         incoming().role == existing().role &&
+         incoming().status == existing().status &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['username', 'avatarUrl', 'bio', 'updatedAt']))
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /watchlists/{entryId} {
+      allow get: if isValidId(entryId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(entryId) && isSignedIn() && isValidWatchlist(incoming());
+      allow update: if isValidId(entryId) && isSignedIn() && isValidWatchlist(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId;
+      allow delete: if isValidId(entryId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    match /favorites/{entryId} {
+      allow get: if isValidId(entryId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(entryId) && isSignedIn() && isValidFavorite(incoming());
+      allow update: if isValidId(entryId) && isSignedIn() && isValidFavorite(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId;
+      allow delete: if isValidId(entryId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    match /watch_history/{entryId} {
+      allow get: if isValidId(entryId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(entryId) && isSignedIn() && isValidWatchHistory(incoming());
+      allow update: if isValidId(entryId) && isSignedIn() && isValidWatchHistory(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId;
+      allow delete: if isValidId(entryId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    match /user_ratings/{entryId} {
+      allow get: if isValidId(entryId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isValidId(entryId) && isSignedIn() && isValidRating(incoming());
+      allow update: if isValidId(entryId) && isSignedIn() && isValidRating(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId;
+      allow delete: if isValidId(entryId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    match /user_collections/{entryId} {
+      allow get: if isValidId(entryId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(entryId) && isSignedIn() && isValidUserCollection(incoming());
+      allow update: if isValidId(entryId) && isSignedIn() && isValidUserCollection(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId;
+      allow delete: if isValidId(entryId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /premiere_reminders/{entryId} {
+      allow get: if isValidId(entryId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(entryId) && isSignedIn() && isValidPremiereReminder(incoming());
+      allow update: if isValidId(entryId) && isSignedIn() && isValidPremiereReminder(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId;
+      allow delete: if isValidId(entryId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /user_preferences/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create, update: if isValidId(userId) && isOwner(userId);
+      allow delete: if isValidId(userId) && isOwner(userId);
+    }
+
+    match /anime_faceoff_votes/{voteId} {
+      allow get: if isValidId(voteId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(voteId) && isSignedIn() && isValidFaceOffVote(incoming());
+      allow update, delete: if false;
+    }
+
+    match /anime_providers/{providerKey} {
+      allow get, list: if true;
+      allow create, update, delete: if false;
+    }
+
+    match /system_settings/{settingKey} {
+      allow get, list: if true;
+      allow create, update, delete: if false;
+    }
+
+    match /universe_configs/{configKey} {
+      allow get, list: if true;
+      allow create, update, delete: if false;
+    }
+
+    match /anime_collections/{collectionId} {
+      allow get, list: if true;
+      allow create, update, delete: if false;
+    }
+
+    // Server-side-only administrative, notification state & session collections (handled exclusively via Express backend)
+    match /user_notification_states/{docId} {
+      allow read, write: if false;
+    }
+    match /admin_credentials/{docId} {
+      allow read, write: if false;
+    }
+    match /admin_sessions/{docId} {
+      allow read, write: if false;
+    }
+    match /admin_activity/{docId} {
+      allow read, write: if false;
+    }
+    match /admin_notifications/{docId} {
+      allow read, write: if false;
+    }
+    match /security_logs/{docId} {
+      allow read, write: if false;
+    }
+    match /error_logs/{docId} {
+      allow read, write: if false;
+    }
+  }
+}

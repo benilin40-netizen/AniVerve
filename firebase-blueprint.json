@@ -1,0 +1,248 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Registered platform user profile and role assignment",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "username": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "avatarUrl": { "type": "string", "maxLength": 1000 },
+        "bio": { "type": "string", "maxLength": 500 },
+        "role": { "type": "string", "enum": ["USER", "ADMIN", "SUPER_ADMIN"] },
+        "status": { "type": "string", "enum": ["ACTIVE", "SUSPENDED"] },
+        "emailVerified": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "username", "role", "status", "emailVerified"]
+    },
+    "WatchlistEntry": {
+      "title": "WatchlistEntry",
+      "description": "User personal anime watchlist item",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "anilistId": { "type": "number" },
+        "animeTitle": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "animeSlug": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "coverImage": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["WATCHING", "COMPLETED", "PLAN_TO_WATCH", "DROPPED", "ON_HOLD"] },
+        "episodesWatched": { "type": "number" },
+        "totalEpisodes": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "anilistId", "animeTitle", "status"]
+    },
+    "FavoriteEntry": {
+      "title": "FavoriteEntry",
+      "description": "User favorite anime entry",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "anilistId": { "type": "number" },
+        "animeTitle": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "animeSlug": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "coverImage": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "anilistId", "animeTitle"]
+    },
+    "WatchHistoryEntry": {
+      "title": "WatchHistoryEntry",
+      "description": "Episode playback progress and history",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "anilistId": { "type": "number" },
+        "animeTitle": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "animeSlug": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "episodeNumber": { "type": "number" },
+        "providerKey": { "type": "string", "maxLength": 64 },
+        "language": { "type": "string", "enum": ["sub", "dub"] },
+        "progressSec": { "type": "number" },
+        "durationSec": { "type": "number" },
+        "watchedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "anilistId", "episodeNumber"]
+    },
+    "UserRating": {
+      "title": "UserRating",
+      "description": "User personal anime score and review",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "anilistId": { "type": "number" },
+        "score": { "type": "number" },
+        "review": { "type": "string", "maxLength": 2000 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "anilistId", "score"]
+    },
+    "AnimeProvider": {
+      "title": "AnimeProvider",
+      "description": "Unified streaming provider adapter (Yenime primary, AniEmbed backup)",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "role": { "type": "string", "enum": ["primary", "backup"] },
+        "adapterType": { "type": "string", "enum": ["yenime", "aniembed"] },
+        "baseUrl": { "type": "string", "maxLength": 500 },
+        "urlTemplate": { "type": "string", "maxLength": 1000 },
+        "supportedIdTypes": { "type": "array" },
+        "supportedLanguages": { "type": "array" },
+        "isEnabled": { "type": "boolean" },
+        "licenseVerified": { "type": "boolean" },
+        "embeddingAllowed": { "type": "boolean" },
+        "availabilityStatus": { "type": "string", "enum": ["unconfigured", "unverified", "available", "restricted", "unreachable", "error"] },
+        "verificationNotes": { "type": "string", "maxLength": 500 },
+        "priority": { "type": "number" },
+        "errorCount": { "type": "number" }
+      },
+      "required": ["key", "name", "isEnabled", "licenseVerified"]
+    },
+    "SystemSetting": {
+      "title": "SystemSetting",
+      "description": "Site-wide branding, SEO, and registration settings",
+      "type": "object",
+      "properties": {
+        "siteName": { "type": "string", "maxLength": 128 },
+        "accentColor": { "type": "string", "maxLength": 32 },
+        "maintenanceMode": { "type": "boolean" },
+        "allowRegistration": { "type": "boolean" }
+      }
+    },
+    "UserCollection": {
+      "title": "UserCollection",
+      "description": "User personal curated anime collection",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 500 },
+        "anilistIds": { "type": "array" },
+        "isPrivate": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "anilistIds"]
+    },
+    "PremiereReminder": {
+      "title": "PremiereReminder",
+      "description": "User saved anime premiere reminder",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "anilistId": { "type": "number" },
+        "animeTitle": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "animeSlug": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "airingAt": { "type": "number" }
+      },
+      "required": ["userId", "anilistId", "animeTitle"]
+    },
+    "UserPreference": {
+      "title": "UserPreference",
+      "description": "User visual theme and discovery universe preferences",
+      "type": "object",
+      "properties": {
+        "visualTheme": { "type": "string", "enum": ["midnight-violet", "obsidian", "aurora", "eclipse"] },
+        "customAccentHex": { "type": "string", "maxLength": 16 },
+        "compactMode": { "type": "boolean" },
+        "reducedMotion": { "type": "boolean" },
+        "personalizationEnabled": { "type": "boolean" },
+        "profilePublic": { "type": "boolean" },
+        "hideAchievements": { "type": "boolean" }
+      }
+    },
+    "FaceOffVote": {
+      "title": "FaceOffVote",
+      "description": "Authenticated user vote for a weekly anime face-off matchup",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "matchupId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "winnerAnilistId": { "type": "number" }
+      },
+      "required": ["userId", "matchupId", "winnerAnilistId"]
+    },
+    "UniverseConfig": {
+      "title": "UniverseConfig",
+      "description": "Published homepage layout and spotlight configuration",
+      "type": "object",
+      "properties": {
+        "heroMode": { "type": "string", "enum": ["spotlight-slider", "minimal", "announcement"] },
+        "particleDensity": { "type": "string", "enum": ["minimal", "balanced", "cinematic"] }
+      }
+    },
+    "UserNotificationState": {
+      "title": "UserNotificationState",
+      "description": "Per-user read/dismissed state and watchlist scope preferences for episode notifications",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "readIds": { "type": "array" },
+        "dismissedIds": { "type": "array" },
+        "includePlanToWatch": { "type": "boolean" },
+        "includeOnHold": { "type": "boolean" },
+        "lastCheckedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User account records keyed by userId"
+    },
+    "/watchlists/{entryId}": {
+      "schema": { "$ref": "#/entities/WatchlistEntry" },
+      "description": "User watchlist entries"
+    },
+    "/favorites/{entryId}": {
+      "schema": { "$ref": "#/entities/FavoriteEntry" },
+      "description": "User favorite anime entries"
+    },
+    "/watch_history/{entryId}": {
+      "schema": { "$ref": "#/entities/WatchHistoryEntry" },
+      "description": "User episode playback history"
+    },
+    "/user_ratings/{entryId}": {
+      "schema": { "$ref": "#/entities/UserRating" },
+      "description": "User anime ratings"
+    },
+    "/user_collections/{entryId}": {
+      "schema": { "$ref": "#/entities/UserCollection" },
+      "description": "User personal anime collections"
+    },
+    "/premiere_reminders/{entryId}": {
+      "schema": { "$ref": "#/entities/PremiereReminder" },
+      "description": "User saved premiere countdown reminders"
+    },
+    "/user_preferences/{userId}": {
+      "schema": { "$ref": "#/entities/UserPreference" },
+      "description": "User universe preferences keyed by userId"
+    },
+    "/anime_faceoff_votes/{voteId}": {
+      "schema": { "$ref": "#/entities/FaceOffVote" },
+      "description": "Authenticated anime face-off votes"
+    },
+    "/anime_providers/{providerKey}": {
+      "schema": { "$ref": "#/entities/AnimeProvider" },
+      "description": "Configured external streaming providers (yenime and aniembed)"
+    },
+    "/system_settings/{settingKey}": {
+      "schema": { "$ref": "#/entities/SystemSetting" },
+      "description": "Platform configuration settings"
+    },
+    "/universe_configs/{configKey}": {
+      "schema": { "$ref": "#/entities/UniverseConfig" },
+      "description": "Homepage universe visual editor configuration"
+    },
+    "/user_notification_states/{userId}": {
+      "schema": { "$ref": "#/entities/UserNotificationState" },
+      "description": "Server-managed user notification read/dismissed state and alert scope preferences"
+    }
+  }
+}
